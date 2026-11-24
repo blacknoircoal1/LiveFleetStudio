@@ -14,23 +14,36 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.keiser.studio.model.BikeData
 import com.keiser.studio.ui.theme.*
 
+// Authentic Stages SC3 / SIC2 Console Palette
+private val StagesBezelDark = Color(0xFF141821)
+private val StagesBezelRim = Color(0xFF283142)
+private val StagesLcdTop = Color(0xFF0A1428)
+private val StagesLcdBottom = Color(0xFF050B16)
+private val StagesLcdBorder = Color(0xFF1A2D4F)
+private val StagesHeaderBg = Color(0xFF0F2040)
+private val StagesRule = Color(0xFF192E52)
+private val StagesCyan = Color(0xFF38BDF8)
+private val StagesInkMuted = Color(0xFF8EA4C2)
+private val StagesGhost = Color(0x14FFFFFF)
+
 /**
  * Stages SC3 / SC2 Commercial Indoor Cycling Console (SIC2).
- * Faithfully reproduces the authentic Stages SIC2 LCD studio screen:
- * - Matte dark charcoal chassis bezel with bottom tactile button pads (RIDE, STAGE, END)
- * - Backlit deep blue-black LCD display with high-contrast ice-white digital segments
- * - Dual-column layout: Current metric (left) | Icon (center) | Average metric (right)
- * - Authentic 7-segment digital font with faint ghost segment backgrounds
- * - Inverted blue Stage/Zone workout banner
+ * Clean, studio-readable SIC2 layout:
+ * - Matte charcoal SC3 chassis bezel with pulsing FTP cadence alert rim
+ * - Deep midnight-blue backlit LCD screen with crisp ice-white 7-segment digits
+ * - Compact top header (#Bike | Z# %FTP) + thin zone color bar for instant studio readability
+ * - Single Hero Power readout (WATTS) centered for distance legibility
+ * - Clean hairline-divided footer row for RPM (with FTP cadence alert) and kCal
  */
 @Composable
 fun StagesSc3Console(
@@ -43,7 +56,7 @@ fun StagesSc3Console(
 ) {
     // Cadence target alert during FTP test: <80 or >90 RPM -> Alert RED
     val isCadenceAlert = isFtpTestActive && (bike.cadenceRpm < 80f || bike.cadenceRpm > 90f)
-    val infiniteTransition = rememberInfiniteTransition(label = "cadenceAlert")
+    val infiniteTransition = rememberInfiniteTransition(label = "stagesCadenceAlert")
     val alertAlpha by infiniteTransition.animateFloat(
         initialValue = 0.5f,
         targetValue = 1.0f,
@@ -51,17 +64,10 @@ fun StagesSc3Console(
             animation = tween(400, easing = LinearEasing),
             repeatMode = RepeatMode.Reverse
         ),
-        label = "alertAlpha"
+        label = "stagesAlertAlpha"
     )
 
     val cardAlpha = if (bike.isStale) 0.45f else 1.0f
-
-    // Derived Stages Metrics
-    val avgWatts = if (bike.powerWatts > 0) (bike.powerWatts * 0.88f).toInt().coerceAtLeast(1) else 0
-    val currentRpm = bike.cadenceRpm.toInt()
-    val avgRpm = if (bike.cadenceRpm > 0f) (bike.cadenceRpm * 0.92f).toInt().coerceAtLeast(1) else 0
-
-    // Zone color
     val zoneColor = bike.ftpZone.color
 
     BoxWithConstraints(
@@ -71,242 +77,298 @@ fun StagesSc3Console(
             .padding(2.dp)
     ) {
         val totalHeight = maxHeight
-        val isVeryCompact = totalHeight < 140.dp || isCompact
+        val totalWidth = maxWidth
+        val isVeryCompact = totalHeight < 138.dp || totalWidth < 135.dp || isCompact
+        val showKcalCell = totalWidth >= 112.dp
+        val showBezelButtons = !isVeryCompact && totalHeight >= 158.dp
+
+        val wattsFontSize: TextUnit = when {
+            totalHeight < 108.dp || totalWidth < 110.dp -> 19.sp
+            isVeryCompact -> 24.sp
+            totalHeight >= 210.dp && totalWidth >= 230.dp -> 40.sp
+            else -> 32.sp
+        }
+        val footerFontSize: TextUnit = when {
+            totalHeight < 108.dp || totalWidth < 110.dp -> 11.5.sp
+            isVeryCompact -> 13.5.sp
+            totalHeight >= 210.dp && totalWidth >= 230.dp -> 20.sp
+            else -> 16.sp
+        }
 
         // OUTER BEZEL (Stages SC3 Console Chassis)
-        Box(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
                 .clip(RoundedCornerShape(8.dp))
-                .background(Color(0xFF141720))
+                .background(StagesBezelDark)
                 .border(
                     BorderStroke(
                         if (isCadenceAlert) 2.dp else 1.dp,
-                        if (isCadenceAlert) AccentDanger.copy(alpha = alertAlpha) else Color(0xFF282F3E)
+                        if (isCadenceAlert) AccentDanger.copy(alpha = alertAlpha) else StagesBezelRim
                     ),
                     RoundedCornerShape(8.dp)
                 )
-                .padding(3.dp)
+                .padding(
+                    start = if (isVeryCompact) 3.dp else 5.dp,
+                    top = if (isVeryCompact) 3.dp else 5.dp,
+                    end = if (isVeryCompact) 3.dp else 5.dp,
+                    bottom = if (showBezelButtons) 3.dp else if (isVeryCompact) 3.dp else 5.dp
+                )
         ) {
-            // INNER LCD SCREEN (Deep blue-black backlight with crisp white digits)
+            // INNER SIC2 BACKLIT LCD SCREEN
             Column(
                 modifier = Modifier
-                    .fillMaxSize()
+                    .fillMaxWidth()
+                    .weight(1f)
                     .clip(RoundedCornerShape(5.dp))
-                    .background(Color(0xFF070B16))
-                    .border(BorderStroke(1.dp, Color(0xFF161E30)), RoundedCornerShape(5.dp))
-                    .padding(horizontal = 6.dp, vertical = 4.dp),
+                    .background(Brush.verticalGradient(listOf(StagesLcdTop, StagesLcdBottom)))
+                    .border(BorderStroke(1.dp, StagesLcdBorder), RoundedCornerShape(5.dp))
+                    .padding(
+                        horizontal = if (isVeryCompact) 5.dp else 7.dp,
+                        vertical = if (isVeryCompact) 3.dp else 5.dp
+                    ),
                 verticalArrangement = Arrangement.SpaceBetween
             ) {
-                // 1. TOP HEADER BANNER: Bike ID + Zone / Work Summary
-                Surface(
-                    color = Color(0xFF0F1E3A),
-                    shape = RoundedCornerShape(3.dp),
-                    border = BorderStroke(0.5.dp, Color(0xFF1E3A6B)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 6.dp, vertical = 2.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                // 1. TOP HEADER BAR + THIN ZONE ACCENT BAR
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Surface(
+                        color = StagesHeaderBg,
+                        shape = RoundedCornerShape(3.dp),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
                         Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(3.dp)
-                        ) {
-                            Text(
-                                text = "BIKE",
-                                fontSize = if (isVeryCompact) 7.5.sp else 8.5.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFF8899B0)
-                            )
-                            Text(
-                                text = "#${bike.bikeId}",
-                                fontFamily = Dseg7FontFamily,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = if (isVeryCompact) 9.sp else 10.5.sp,
-                                color = Color(0xFFFFFFFF),
-                                maxLines = 1,
-                                softWrap = false
-                            )
-                        }
-
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = if (isVeryCompact) 4.dp else 6.dp, vertical = 2.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                text = "Z${bike.ftpZone.zoneNumber} ${bike.ftpPercent}%",
-                                fontSize = if (isVeryCompact) 8.sp else 9.5.sp,
-                                fontWeight = FontWeight.Black,
-                                color = zoneColor,
-                                maxLines = 1,
-                                softWrap = false
-                            )
-                            if (!isVeryCompact) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(3.dp)
+                            ) {
+                                if (!isVeryCompact) {
+                                    Text(
+                                        text = "SC3",
+                                        fontFamily = FontFamily.Monospace,
+                                        fontSize = 8.sp,
+                                        fontWeight = FontWeight.Black,
+                                        color = StagesCyan,
+                                        maxLines = 1,
+                                        softWrap = false
+                                    )
+                                }
                                 Text(
-                                    text = "• ${bike.calories} kCal",
-                                    fontSize = 7.5.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    color = Color(0xFF94A3B8),
+                                    text = "#${bike.bikeId}",
+                                    fontFamily = Dseg7FontFamily,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = if (isVeryCompact) 9.sp else 10.5.sp,
+                                    color = Color.White,
                                     maxLines = 1,
                                     softWrap = false
                                 )
                             }
+
+                            Text(
+                                text = if (bike.isStale) "IDLE" else "Z${bike.ftpZone.zoneNumber} ${bike.ftpPercent}%",
+                                fontSize = if (isVeryCompact) 8.sp else 9.5.sp,
+                                fontWeight = FontWeight.Black,
+                                color = if (bike.isStale) Color(0xFFFCA5A5) else zoneColor,
+                                maxLines = 1,
+                                softWrap = false
+                            )
                         }
+                    }
+
+                    // Thin Zone Color Accent Strip
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(if (isVeryCompact) 2.dp else 2.5.dp)
+                            .clip(RoundedCornerShape(1.dp))
+                            .background(zoneColor)
+                    )
+                }
+
+                // 2. HERO CENTER READOUT: POWER (WATTS)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.Bottom,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Box(contentAlignment = Alignment.CenterEnd) {
+                            Text(
+                                text = "888",
+                                fontFamily = Dseg7FontFamily,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = wattsFontSize,
+                                color = StagesGhost,
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                            Text(
+                                text = "${bike.powerWatts}",
+                                fontFamily = Dseg7FontFamily,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = wattsFontSize,
+                                color = Color.White,
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(if (isVeryCompact) 3.dp else 4.dp))
+                        Text(
+                            text = if (isVeryCompact) "W" else "WATTS",
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = if (isVeryCompact) 7.5.sp else 9.sp,
+                            fontWeight = FontWeight.Black,
+                            color = StagesCyan,
+                            modifier = Modifier.padding(bottom = if (isVeryCompact) 2.dp else 4.dp),
+                            maxLines = 1,
+                            softWrap = false
+                        )
                     }
                 }
 
-                // Column Headers: CUR / MAX | (ICON) | AVG
+                // 3. HAIRLINE LCD DIVIDER
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(1.dp)
+                        .background(StagesRule)
+                )
+
+                // 4. COMPACT FOOTER ROW: RPM | kCal
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 2.dp),
+                        .padding(top = if (isVeryCompact) 2.dp else 3.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("CUR", fontSize = 6.5.sp, fontWeight = FontWeight.Bold, color = Color(0xFF64748B))
-                    Text("AVG", fontSize = 6.5.sp, fontWeight = FontWeight.Bold, color = Color(0xFF64748B))
+                    StagesFooterCell(
+                        value = "${bike.cadenceRpm.toInt()}",
+                        ghost = "888",
+                        label = "RPM",
+                        fontSize = footerFontSize,
+                        isVeryCompact = isVeryCompact,
+                        isAlert = isCadenceAlert,
+                        alertAlpha = alertAlpha,
+                        modifier = Modifier.weight(1f)
+                    )
+
+                    if (showKcalCell) {
+                        Box(
+                            modifier = Modifier
+                                .width(1.dp)
+                                .height(if (isVeryCompact) 16.dp else 22.dp)
+                                .background(StagesRule)
+                        )
+
+                        StagesFooterCell(
+                            value = "${bike.calories}",
+                            ghost = "888",
+                            label = "KCAL",
+                            fontSize = footerFontSize,
+                            isVeryCompact = isVeryCompact,
+                            isAlert = false,
+                            alertAlpha = 1f,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
                 }
+            }
 
-                // 3. MAIN DUAL-COLUMN METRICS GRID
-                // ROW 1: POWER (WATTS)
-                StagesMetricRow(
-                    currentVal = "${bike.powerWatts}",
-                    currentGhost = "888",
-                    avgVal = "$avgWatts",
-                    avgGhost = "888",
-                    unit = "WATTS",
-                    icon = "⚡",
-                    iconColor = Color(0xFFFFD600),
-                    fontSize = if (isVeryCompact) 18.sp else 24.sp
-                )
-
-                // ROW 2: CADENCE (RPM)
-                StagesMetricRow(
-                    currentVal = "$currentRpm",
-                    currentGhost = "888",
-                    avgVal = "$avgRpm",
-                    avgGhost = "888",
-                    unit = "RPM",
-                    icon = "⚙",
-                    iconColor = Color(0xFF00A3E0),
-                    fontSize = if (isVeryCompact) 18.sp else 24.sp
-                )
+            // SUBTLE TACTILE BEZEL BUTTON STRIP (only on spacious tiles)
+            if (showBezelButtons) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 3.dp, start = 4.dp, end = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    listOf("RIDE", "STAGE", "END").forEach { btnLabel ->
+                        Text(
+                            text = btnLabel,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 6.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF56657F),
+                            letterSpacing = 0.5.sp,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
+                }
             }
         }
     }
 }
 
-/**
- * Stages Metric Row: [Current Val + Unit] | [Center Icon] | [Avg Val + Unit]
- */
 @Composable
-private fun StagesMetricRow(
-    currentVal: String,
-    currentGhost: String,
-    avgVal: String,
-    avgGhost: String,
-    unit: String,
-    icon: String,
-    iconColor: Color,
-    fontSize: androidx.compose.ui.unit.TextUnit
+private fun StagesFooterCell(
+    value: String,
+    ghost: String,
+    label: String,
+    fontSize: TextUnit,
+    isVeryCompact: Boolean,
+    isAlert: Boolean,
+    alertAlpha: Float,
+    modifier: Modifier = Modifier
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 0.5.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
+    Column(
+        modifier = modifier
+            .then(
+                if (isAlert) {
+                    Modifier
+                        .padding(horizontal = 2.dp)
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(AccentDanger.copy(alpha = alertAlpha))
+                        .padding(vertical = 1.dp)
+                } else {
+                    Modifier.padding(horizontal = 2.dp)
+                }
+            ),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
     ) {
-        // Left Column: Current Metric
-        Row(
-            verticalAlignment = Alignment.Bottom,
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
-            modifier = Modifier.weight(1f)
-        ) {
-            Box(contentAlignment = Alignment.CenterStart) {
-                // Faint ghost segments
+        Box(contentAlignment = Alignment.Center) {
+            if (!isAlert) {
                 Text(
-                    text = currentGhost,
+                    text = ghost,
                     fontFamily = Dseg7FontFamily,
                     fontWeight = FontWeight.Bold,
                     fontSize = fontSize,
-                    color = Color(0x12FFFFFF),
-                    maxLines = 1,
-                    softWrap = false
-                )
-                // Active lit digits
-                Text(
-                    text = currentVal,
-                    fontFamily = Dseg7FontFamily,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = fontSize,
-                    color = Color(0xFFFFFFFF),
+                    color = StagesGhost,
                     maxLines = 1,
                     softWrap = false
                 )
             }
             Text(
-                text = unit,
-                fontSize = ((fontSize.value * 0.45f).coerceIn(5.5f, 7.5f)).sp,
+                text = value,
+                fontFamily = Dseg7FontFamily,
                 fontWeight = FontWeight.Bold,
-                color = Color(0xFF8899B0),
-                modifier = Modifier.padding(bottom = 1.dp),
+                fontSize = fontSize,
+                color = if (isAlert) Color.White else Color(0xFFE2E8F0),
                 maxLines = 1,
                 softWrap = false
             )
         }
-
-        // Center Column: Stages Metric Icon
         Text(
-            text = icon,
-            fontSize = ((fontSize.value * 0.65f).coerceIn(8f, 11f)).sp,
-            color = iconColor,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.padding(horizontal = 2.dp)
+            text = if (isAlert) "$label !" else label,
+            fontFamily = FontFamily.Monospace,
+            fontSize = if (isVeryCompact) 6.sp else 7.sp,
+            fontWeight = FontWeight.Bold,
+            color = if (isAlert) Color.White else StagesInkMuted,
+            letterSpacing = 0.3.sp,
+            maxLines = 1,
+            softWrap = false
         )
-
-        // Right Column: Average Metric
-        Row(
-            verticalAlignment = Alignment.Bottom,
-            horizontalArrangement = Arrangement.End,
-            modifier = Modifier.weight(1f)
-        ) {
-            Box(contentAlignment = Alignment.CenterEnd) {
-                // Faint ghost segments
-                Text(
-                    text = avgGhost,
-                    fontFamily = Dseg7FontFamily,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = fontSize,
-                    color = Color(0x12FFFFFF),
-                    maxLines = 1,
-                    softWrap = false
-                )
-                // Active lit digits
-                Text(
-                    text = avgVal,
-                    fontFamily = Dseg7FontFamily,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = fontSize,
-                    color = Color(0xFFE2E8F0),
-                    maxLines = 1,
-                    softWrap = false
-                )
-            }
-            Spacer(modifier = Modifier.width(2.dp))
-            Text(
-                text = unit,
-                fontSize = ((fontSize.value * 0.45f).coerceIn(5.5f, 7.5f)).sp,
-                fontWeight = FontWeight.Bold,
-                color = Color(0xFF8899B0),
-                modifier = Modifier.padding(bottom = 1.dp),
-                maxLines = 1,
-                softWrap = false
-            )
-        }
     }
 }

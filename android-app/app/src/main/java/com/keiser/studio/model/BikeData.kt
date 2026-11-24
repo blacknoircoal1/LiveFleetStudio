@@ -16,6 +16,7 @@ data class BikeData(
     val isStale: Boolean = false,
     val riderName: String = "Rider #$bikeId",
     val brand: String = "Keiser",
+    val equipmentType: String = "",
     val ftp: Int = 200,
     val ftpPercent: Int = 0,
     val ftpZone: FtpZone = FtpZone.ZONE_1

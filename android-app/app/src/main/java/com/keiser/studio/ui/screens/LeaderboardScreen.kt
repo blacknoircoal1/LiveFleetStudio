@@ -192,24 +192,51 @@ fun LeaderboardScreen(
                                                 ) {
                                                     val isStages = uiState.selectedProtocol == BikeProtocol.STAGES ||
                                                         (uiState.selectedProtocol == BikeProtocol.AUTO_DETECT && bike.brand.equals("Stages", ignoreCase = true))
+                                                    val isConcept2 = uiState.selectedProtocol == BikeProtocol.CONCEPT2 ||
+                                                        (uiState.selectedProtocol == BikeProtocol.AUTO_DETECT && bike.brand.equals("Concept2", ignoreCase = true))
+                                                    val isSchwinn = uiState.selectedProtocol == BikeProtocol.SCHWINN_4IIII ||
+                                                        (uiState.selectedProtocol == BikeProtocol.AUTO_DETECT && bike.brand.equals("Schwinn", ignoreCase = true))
 
-                                                    if (isStages) {
-                                                        StagesSc3Console(
-                                                            bike = bike,
-                                                            isFtpTestActive = uiState.ftpTest.isActive && !uiState.ftpTest.isPreparing,
-                                                            isCompact = isCompact,
-                                                            zoneCount = uiState.zoneCount,
-                                                            sessionElapsedSeconds = uiState.sessionElapsedSeconds,
-                                                            modifier = Modifier.fillMaxSize()
-                                                        )
-                                                    } else {
-                                                        FloatingBikeDial(
-                                                            bike = bike,
-                                                            isFtpTestActive = uiState.ftpTest.isActive && !uiState.ftpTest.isPreparing,
-                                                            isCompact = isCompact,
-                                                            zoneCount = uiState.zoneCount,
-                                                            modifier = Modifier.fillMaxSize()
-                                                        )
+                                                    when {
+                                                        isStages -> {
+                                                            StagesSc3Console(
+                                                                bike = bike,
+                                                                isFtpTestActive = uiState.ftpTest.isActive && !uiState.ftpTest.isPreparing,
+                                                                isCompact = isCompact,
+                                                                zoneCount = uiState.zoneCount,
+                                                                sessionElapsedSeconds = uiState.sessionElapsedSeconds,
+                                                                modifier = Modifier.fillMaxSize()
+                                                            )
+                                                        }
+                                                        isConcept2 -> {
+                                                            Concept2Pm5Console(
+                                                                bike = bike,
+                                                                isFtpTestActive = uiState.ftpTest.isActive && !uiState.ftpTest.isPreparing,
+                                                                isCompact = isCompact,
+                                                                zoneCount = uiState.zoneCount,
+                                                                sessionElapsedSeconds = uiState.sessionElapsedSeconds,
+                                                                modifier = Modifier.fillMaxSize()
+                                                            )
+                                                        }
+                                                        isSchwinn -> {
+                                                            SchwinnEchelon2Console(
+                                                                bike = bike,
+                                                                isFtpTestActive = uiState.ftpTest.isActive && !uiState.ftpTest.isPreparing,
+                                                                isCompact = isCompact,
+                                                                zoneCount = uiState.zoneCount,
+                                                                sessionElapsedSeconds = uiState.sessionElapsedSeconds,
+                                                                modifier = Modifier.fillMaxSize()
+                                                            )
+                                                        }
+                                                        else -> {
+                                                            FloatingBikeDial(
+                                                                bike = bike,
+                                                                isFtpTestActive = uiState.ftpTest.isActive && !uiState.ftpTest.isPreparing,
+                                                                isCompact = isCompact,
+                                                                zoneCount = uiState.zoneCount,
+                                                                modifier = Modifier.fillMaxSize()
+                                                            )
+                                                        }
                                                     }
                                                 }
                                             } else {
@@ -411,19 +438,19 @@ private fun getProtocolEmptyInfo(protocol: BikeProtocol): ProtocolEmptyInfo {
         )
         BikeProtocol.SCHWINN_4IIII -> ProtocolEmptyInfo(
             icon = "🚴‍♂️",
-            brandPill = "SCHWINN / 4iiii FLEET",
+            brandPill = "SCHWINN CARBON BLUE • 4iiii",
             waitingTitle = "Waiting for Schwinn / 4iiii Broadcasts...",
-            idleTitle = "No Schwinn / 4iiii Bikes Detected",
+            idleTitle = "No Schwinn Carbon Blue Bikes Detected",
             scanDescription = "Actively scanning for 4iiii 0x0182 crank broadcasts. Spin the cranks to awaken the 4iiii power meter and transmit telemetry.",
-            idleDescription = "Tap 'Start Scan' to passively listen for Schwinn 4iiii power cranks, or enable Demo Mode to simulate a 12-rider studio session."
+            idleDescription = "Tap 'Start Scan' to passively listen for Schwinn 4iiii power cranks, or enable Demo Mode to simulate a 12-rider Echelon2 studio session."
         )
         BikeProtocol.CONCEPT2 -> ProtocolEmptyInfo(
-            icon = "🚣",
-            brandPill = "CONCEPT2 PM5 FLEET",
+            icon = "🚴‍♂️",
+            brandPill = "CONCEPT2 BIKEERG • PM5",
             waitingTitle = "Waiting for Concept2 PM5 Broadcasts...",
-            idleTitle = "No Concept2 PM5 Ergs Detected",
+            idleTitle = "No Concept2 PM5 Monitors Detected",
             scanDescription = "Actively scanning for Concept2 PM5 Bluetooth beacons (BikeErg, RowErg, SkiErg). Ensure wireless is enabled in the PM5 monitor menu.",
-            idleDescription = "Tap 'Start Scan' to passively listen for Concept2 PM5 broadcasts in range, or enable Demo Mode to simulate a 12-rider studio session."
+            idleDescription = "Tap 'Start Scan' to passively listen for Concept2 PM5 monitors in range, or enable Demo Mode to simulate a 12-rider PM5 studio session."
         )
         BikeProtocol.FTMS_UNIVERSAL -> ProtocolEmptyInfo(
             icon = "🚴‍♂️",

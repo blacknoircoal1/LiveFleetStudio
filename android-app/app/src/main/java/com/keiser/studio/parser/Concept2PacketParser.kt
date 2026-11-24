@@ -19,7 +19,9 @@ object Concept2PacketParser : BikePacketParser {
         val deviceName = record.deviceName ?: result.device?.name ?: ""
         val isC2 = deviceName.contains("pm5", ignoreCase = true) ||
                 deviceName.contains("concept2", ignoreCase = true) ||
-                deviceName.contains("bikeerg", ignoreCase = true)
+                deviceName.contains("bikeerg", ignoreCase = true) ||
+                deviceName.contains("rowerg", ignoreCase = true) ||
+                deviceName.contains("skierg", ignoreCase = true)
 
         val c2Data = record.getManufacturerSpecificData(COMPANY_ID_CONCEPT2)
         if (!isC2 && c2Data == null) {
@@ -28,6 +30,7 @@ object Concept2PacketParser : BikePacketParser {
 
         val raw = c2Data ?: record.bytes ?: return null
         val bikeId = extractBikeIdFromName(deviceName) ?: deriveBikeIdFromAddress(result.device?.address ?: "")
+        val equipmentType = detectEquipmentType(deviceName)
 
         var powerWatts = 0
         var cadenceRpm = 0f
@@ -44,12 +47,28 @@ object Concept2PacketParser : BikePacketParser {
         return BikeData(
             bikeId = bikeId,
             brand = "Concept2",
+            equipmentType = equipmentType,
             powerWatts = powerWatts,
             cadenceRpm = cadenceRpm,
             riderName = "PM5 #$bikeId",
             lastSeenTimestamp = System.currentTimeMillis(),
             isStale = false
         )
+    }
+
+    /**
+     * Infers the Concept2 erg model ("BIKEERG", "ROWERG", "SKIERG", or "" if unspecified)
+     * from the PM5 BLE advertisement name (e.g. "PM5 430012345 Bike", "PM5 430012345 Row",
+     * "PM5 430012345 Ski", "BikeErg", "RowErg", "SkiErg").
+     */
+    fun detectEquipmentType(deviceName: String): String {
+        val lower = deviceName.lowercase()
+        return when {
+            lower.contains("bikeerg") || Regex("\\bbike\\b").containsMatchIn(lower) -> "BIKEERG"
+            lower.contains("rowerg") || Regex("\\brow\\b").containsMatchIn(lower) -> "ROWERG"
+            lower.contains("skierg") || Regex("\\bski\\b").containsMatchIn(lower) -> "SKIERG"
+            else -> ""
+        }
     }
 
     private fun extractBikeIdFromName(name: String): Int? {

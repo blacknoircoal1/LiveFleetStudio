@@ -193,20 +193,15 @@ class KeiserViewModel(application: Application) : AndroidViewModel(application) 
 
     private fun startDemoSimulation() {
         demoJob?.cancel()
-        val demoBrand = when (_uiState.value.selectedProtocol) {
-            BikeProtocol.AUTO_DETECT -> "Fleet"
-            BikeProtocol.KEISER -> "Keiser"
-            BikeProtocol.STAGES -> "Stages"
-            BikeProtocol.SCHWINN_4IIII -> "Schwinn"
-            BikeProtocol.CONCEPT2 -> "Concept2"
-            BikeProtocol.FTMS_UNIVERSAL -> "FTMS"
-            BikeProtocol.POWER_METERS -> "Power"
-        }
+        val protocol = _uiState.value.selectedProtocol
+        val demoBrand = demoBrandFor(protocol)
         demoConfigs.forEach { cfg ->
             val ftpPct = (cfg.baseWatts * 100) / cfg.ftp
+            val eqType = demoEquipmentTypeFor(protocol, cfg.id)
+            val initialCadence = demoBaseCadenceFor(eqType, cfg.baseRpm)
             bikeMap[cfg.id] = BikeData(
                 bikeId = cfg.id,
-                cadenceRpm = cfg.baseRpm,
+                cadenceRpm = initialCadence,
                 heartRateBpm = 0f,
                 powerWatts = cfg.baseWatts,
                 calories = 100 + cfg.id * 10,
@@ -217,6 +212,7 @@ class KeiserViewModel(application: Application) : AndroidViewModel(application) 
                 isStale = false,
                 riderName = cfg.name,
                 brand = demoBrand,
+                equipmentType = eqType,
                 ftp = cfg.ftp,
                 ftpPercent = ftpPct,
                 ftpZone = FtpZone.fromFtpPercent(ftpPct, _uiState.value.zoneCount)
@@ -229,10 +225,15 @@ class KeiserViewModel(application: Application) : AndroidViewModel(application) 
                 delay(1000)
                 demoConfigs.forEach { cfg ->
                     val existing = bikeMap[cfg.id] ?: return@forEach
-                    val rpmDelta = (Random.nextFloat() * 4f - 2f)
+                    val isRowOrSki = existing.equipmentType == "ROWERG" || existing.equipmentType == "SKIERG"
+                    val rpmDelta = if (isRowOrSki) (Random.nextFloat() * 2f - 1f) else (Random.nextFloat() * 4f - 2f)
                     val wattsDelta = Random.nextInt(-8, 9)
 
-                    val newRpm = (existing.cadenceRpm + rpmDelta).coerceIn(65f, 115f)
+                    val newRpm = when (existing.equipmentType) {
+                        "ROWERG" -> (existing.cadenceRpm + rpmDelta).coerceIn(22f, 34f)
+                        "SKIERG" -> (existing.cadenceRpm + rpmDelta).coerceIn(30f, 44f)
+                        else -> (existing.cadenceRpm + rpmDelta).coerceIn(65f, 115f)
+                    }
                     val newWatts = (existing.powerWatts + wattsDelta).coerceIn(80, 450)
                     val newDist = existing.distance + (newRpm / 60f) * 0.005f
                     val newCal = existing.calories + if (newWatts > 150) 1 else 0
@@ -477,7 +478,51 @@ class KeiserViewModel(application: Application) : AndroidViewModel(application) 
             repository.saveBikeProtocol(protocol)
             _uiState.update { it.copy(selectedProtocol = protocol) }
             bleScanner.setProtocol(protocol)
+            if (_uiState.value.isDemoMode) {
+                val updatedBrand = demoBrandFor(protocol)
+                demoConfigs.forEach { cfg ->
+                    bikeMap[cfg.id]?.let { existing ->
+                        val updatedEqType = demoEquipmentTypeFor(protocol, cfg.id)
+                        val updatedCadence = if (existing.equipmentType != updatedEqType) {
+                            demoBaseCadenceFor(updatedEqType, cfg.baseRpm)
+                        } else {
+                            existing.cadenceRpm
+                        }
+                        bikeMap[cfg.id] = existing.copy(
+                            brand = updatedBrand,
+                            equipmentType = updatedEqType,
+                            cadenceRpm = updatedCadence
+                        )
+                    }
+                }
+                refreshUiState()
+            }
         }
+    }
+
+    private fun demoEquipmentTypeFor(protocol: BikeProtocol, bikeId: Int): String {
+        if (protocol != BikeProtocol.CONCEPT2) return ""
+        return when {
+            bikeId <= 4 -> "BIKEERG"
+            bikeId <= 8 -> "ROWERG"
+            else -> "SKIERG"
+        }
+    }
+
+    private fun demoBaseCadenceFor(equipmentType: String, cyclingBaseRpm: Float): Float = when (equipmentType) {
+        "ROWERG" -> 26f + (cyclingBaseRpm % 6f)
+        "SKIERG" -> 34f + (cyclingBaseRpm % 8f)
+        else -> cyclingBaseRpm
+    }
+
+    private fun demoBrandFor(protocol: BikeProtocol): String = when (protocol) {
+        BikeProtocol.AUTO_DETECT -> "Fleet"
+        BikeProtocol.KEISER -> "Keiser"
+        BikeProtocol.STAGES -> "Stages"
+        BikeProtocol.SCHWINN_4IIII -> "Schwinn"
+        BikeProtocol.CONCEPT2 -> "Concept2"
+        BikeProtocol.FTMS_UNIVERSAL -> "FTMS"
+        BikeProtocol.POWER_METERS -> "Power"
     }
 
     override fun onCleared() {
