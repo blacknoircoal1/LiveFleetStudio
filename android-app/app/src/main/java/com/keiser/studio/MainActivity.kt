@@ -1,7 +1,10 @@
 package com.keiser.studio
 
 import android.Manifest
+import android.bluetooth.BluetoothManager
+import android.content.Context
 import android.content.pm.PackageManager
+import android.location.LocationManager
 import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
@@ -31,12 +34,12 @@ class MainActivity : ComponentActivity() {
     ) { permissions ->
         val allGranted = permissions.values.all { it }
         if (allGranted) {
-            Toast.makeText(this, "Bluetooth permissions granted", Toast.LENGTH_SHORT).show()
-            viewModel.toggleBleScan()
+            Toast.makeText(this, "Bluetooth & Location permissions granted", Toast.LENGTH_SHORT).show()
+            startScanIfRadiosReady()
         } else {
             Toast.makeText(
                 this,
-                "Bluetooth permission required to scan fitness fleet",
+                "Bluetooth and Location permissions are required to scan fitness fleet broadcasts",
                 Toast.LENGTH_LONG
             ).show()
         }
@@ -89,7 +92,9 @@ class MainActivity : ComponentActivity() {
         val requiredPermissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             arrayOf(
                 Manifest.permission.BLUETOOTH_SCAN,
-                Manifest.permission.BLUETOOTH_CONNECT
+                Manifest.permission.BLUETOOTH_CONNECT,
+                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.ACCESS_COARSE_LOCATION
             )
         } else {
             arrayOf(
@@ -103,9 +108,36 @@ class MainActivity : ComponentActivity() {
         }
 
         if (missing.isEmpty()) {
-            viewModel.toggleBleScan()
+            startScanIfRadiosReady()
         } else {
             permissionLauncher.launch(missing.toTypedArray())
         }
+    }
+
+    private fun startScanIfRadiosReady() {
+        val btManager = getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
+        if (btManager?.adapter?.isEnabled != true) {
+            Toast.makeText(this, "Please turn on Bluetooth to scan for bikes", Toast.LENGTH_LONG).show()
+            return
+        }
+
+        val locationManager = getSystemService(Context.LOCATION_SERVICE) as? LocationManager
+        val isLocationOn = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            locationManager?.isLocationEnabled == true
+        } else {
+            @Suppress("DEPRECATION")
+            locationManager?.isProviderEnabled(LocationManager.GPS_PROVIDER) == true ||
+                locationManager?.isProviderEnabled(LocationManager.NETWORK_PROVIDER) == true
+        }
+
+        if (!isLocationOn) {
+            Toast.makeText(
+                this,
+                "Please turn on Location Services so Android allows passive BLE bike broadcasts",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+
+        viewModel.toggleBleScan()
     }
 }

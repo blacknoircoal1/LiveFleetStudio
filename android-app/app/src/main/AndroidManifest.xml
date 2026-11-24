@@ -9,21 +9,16 @@
     <uses-permission
         android:name="android.permission.BLUETOOTH_ADMIN"
         android:maxSdkVersion="30" />
-    <uses-permission
-        android:name="android.permission.ACCESS_FINE_LOCATION"
-        android:maxSdkVersion="30" />
-    <uses-permission
-        android:name="android.permission.ACCESS_COARSE_LOCATION"
-        android:maxSdkVersion="30" />
 
     <!-- Modern Bluetooth permissions for Android 12 (API 31) and above -->
-    <uses-permission
-        android:name="android.permission.BLUETOOTH_SCAN"
-        android:usesPermissionFlags="neverForLocation"
-        tools:targetApi="s" />
-    <uses-permission
-        android:name="android.permission.BLUETOOTH_CONNECT"
-        tools:targetApi="s" />
+    <!-- Note: neverForLocation is intentionally omitted so Android/OEM BLE stacks
+         do not filter passive manufacturer-data broadcasts (e.g. Keiser M3i) -->
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+
+    <!-- Location permissions required across all API levels for unfiltered passive BLE broadcasts -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
     <!-- Screen Wake Lock -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />

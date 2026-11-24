@@ -5,7 +5,6 @@ import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothManager
 import android.bluetooth.le.BluetoothLeScanner
 import android.bluetooth.le.ScanCallback
-import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.Context
@@ -32,13 +31,7 @@ class KeiserBleScanner(private val context: Context) {
         private set
 
     fun setProtocol(protocol: BikeProtocol) {
-        if (currentProtocol != protocol) {
-            currentProtocol = protocol
-            if (isScanning) {
-                stopScan()
-                startScan()
-            }
-        }
+        currentProtocol = protocol
     }
 
     private val scanCallback = object : ScanCallback() {
@@ -76,44 +69,13 @@ class KeiserBleScanner(private val context: Context) {
             .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
             .build()
 
-        val filters = when (currentProtocol) {
-            BikeProtocol.KEISER -> listOf(
-                ScanFilter.Builder()
-                    .setManufacturerData(KeiserPacketParser.COMPANY_ID_KEISER, byteArrayOf())
-                    .build()
-            )
-            BikeProtocol.STAGES -> listOf(
-                ScanFilter.Builder()
-                    .setManufacturerData(StagesPacketParser.COMPANY_ID_STAGES, byteArrayOf())
-                    .build()
-            )
-            BikeProtocol.SCHWINN_4IIII -> listOf(
-                ScanFilter.Builder()
-                    .setManufacturerData(Schwinn4iiiiPacketParser.COMPANY_ID_4IIII, byteArrayOf())
-                    .build()
-            )
-            BikeProtocol.CONCEPT2 -> listOf(
-                ScanFilter.Builder()
-                    .setManufacturerData(Concept2PacketParser.COMPANY_ID_CONCEPT2, byteArrayOf())
-                    .build()
-            )
-            BikeProtocol.FTMS_UNIVERSAL -> listOf(
-                ScanFilter.Builder()
-                    .setServiceUuid(FtmsPacketParser.UUID_FTMS)
-                    .build()
-            )
-            BikeProtocol.POWER_METERS -> listOf(
-                ScanFilter.Builder()
-                    .setServiceUuid(PowerMeterPacketParser.UUID_CYCLING_POWER)
-                    .build()
-            )
-            BikeProtocol.AUTO_DETECT -> emptyList()
-        }
-
+        // Use an unfiltered BLE scan (filters = null) and filter by brand/company ID in software
+        // inside UniversalBikeParser. Hardware ScanFilters with empty manufacturer payloads can
+        // drop connectionless Keiser M3i / studio bike broadcasts on several Android BLE chipsets.
         return try {
-            scanner.startScan(filters, settings, scanCallback)
+            scanner.startScan(null, settings, scanCallback)
             isScanning = true
-            Log.i(TAG, "Low latency BLE scan started with protocol: ${currentProtocol.displayName}")
+            Log.i(TAG, "Unfiltered low-latency BLE scan started (protocol filter: ${currentProtocol.displayName})")
             true
         } catch (e: SecurityException) {
             Log.e(TAG, "SecurityException starting BLE scan: ${e.message}")
