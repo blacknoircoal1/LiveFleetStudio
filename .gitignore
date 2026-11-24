@@ -1,0 +1,38 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Gradle & Android build artifacts
+.gradle/
+build/
+**/build/
+.kotlin/
+**/.kotlin/
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Local environment / SDK paths
+local.properties
+
+# Android Studio / IntelliJ IDEA
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# Compiled outputs & packages
+*.apk
+*.ap_
+*.aab
+*.dex
+*.class
+*.jks
+*.keystore
+
+# Logs & temporary files
+*.log
+*.hprof
+*.tmp
