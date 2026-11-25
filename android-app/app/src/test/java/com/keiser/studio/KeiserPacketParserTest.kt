@@ -67,4 +67,26 @@ class KeiserPacketParserTest {
         assertEquals(170, fiveMinFtp)
         assertEquals(190, twentyMinFtp)
     }
+
+    @Test
+    fun testKeiserRealtimeIntervalDataTypes() {
+        // Real-time interval dataType 129 should be accepted; interval summary dataType 5 should be ignored
+        val realtimeIntervalPacket = byteArrayOf(
+            6.toByte(), 98.toByte(), 129.toByte(), 4.toByte(),
+            0x20.toByte(), 0x03.toByte(), // 80.0 RPM
+            0x00.toByte(), 0x00.toByte(), // 0 HR
+            0xC8.toByte(), 0x00.toByte(), // 200 W
+            0x64.toByte(), 0x00.toByte(), // 100 kcal
+            0x14.toByte(), 0x00.toByte(), // 2.0 MI
+            12.toByte()
+        )
+        val parsedRealtime = KeiserPacketParser.parse(realtimeIntervalPacket)
+        assertNotNull(parsedRealtime)
+        assertEquals(4, parsedRealtime!!.bikeId)
+        assertEquals(200, parsedRealtime.powerWatts)
+
+        val summaryPacket = realtimeIntervalPacket.copyOf()
+        summaryPacket[2] = 5.toByte()
+        assertNull(KeiserPacketParser.parse(summaryPacket))
+    }
 }

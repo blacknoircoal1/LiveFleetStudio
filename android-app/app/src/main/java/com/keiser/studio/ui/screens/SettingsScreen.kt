@@ -24,7 +24,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import com.keiser.studio.AppConfig
+import com.keiser.studio.data.RiderProfileRepository
 import com.keiser.studio.model.BikeProtocol
 import com.keiser.studio.model.FtpZone
 import com.keiser.studio.model.LeaderboardViewMode
@@ -68,6 +70,7 @@ fun SettingsScreen(
     onCloseSettings: () -> Unit,
     onSelectProtocol: (BikeProtocol) -> Unit,
     onZoneCountChange: (Int) -> Unit,
+    onDefaultFtpChange: (Int) -> Unit = {},
     onViewModeChange: (LeaderboardViewMode) -> Unit = {},
     onBleToggle: () -> Unit = {},
     onDemoToggle: (Boolean) -> Unit = {},
@@ -130,7 +133,9 @@ fun SettingsScreen(
                     // SUB-PAGE 2: POWER TRAINING ZONES
                     PowerZonesSubPage(
                         zoneCount = uiState.zoneCount,
-                        onZoneCountChange = onZoneCountChange
+                        defaultFtp = uiState.defaultFtp,
+                        onZoneCountChange = onZoneCountChange,
+                        onDefaultFtpChange = onDefaultFtpChange
                     )
                 }
                 SettingsFolder.BLUETOOTH_SCANNER -> {
@@ -140,6 +145,7 @@ fun SettingsScreen(
                         isDemoMode = uiState.isDemoMode,
                         activeBikeCount = uiState.activeBikeCount,
                         selectedProtocol = uiState.selectedProtocol,
+                        antPlusStatus = uiState.antPlusStatus,
                         onBleToggle = onBleToggle,
                         onDemoToggle = onDemoToggle
                     )
@@ -245,7 +251,7 @@ private fun FoldersDirectory(
         items(SettingsFolder.entries) { folder ->
             val badgeText = when (folder) {
                 SettingsFolder.BIKE_FLEET -> uiState.selectedProtocol.displayName.substringBefore(" ")
-                SettingsFolder.POWER_ZONES -> "${uiState.zoneCount} ZONES"
+                SettingsFolder.POWER_ZONES -> "${uiState.zoneCount}Z • ${uiState.defaultFtp}W"
                 SettingsFolder.BLUETOOTH_SCANNER -> if (uiState.isScanning) "SCANNING" else "STANDBY"
                 SettingsFolder.KNOWLEDGE_BASE -> "GUIDE"
             }
@@ -378,9 +384,11 @@ private fun BikeFleetSubPage(
     selectedProtocol: BikeProtocol,
     onSelectProtocol: (BikeProtocol) -> Unit
 ) {
+    var infoProtocol by remember { mutableStateOf<BikeProtocol?>(null) }
+
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         item {
             Text(
@@ -391,10 +399,10 @@ private fun BikeFleetSubPage(
                 letterSpacing = 1.sp
             )
             Text(
-                text = "Select your indoor bike brand, or choose 'Auto-Detect' to scan all brands simultaneously.",
+                text = "Select your indoor bike brand, or choose Auto-Detect to scan all brands at once. Tap ? for connection details.",
                 fontSize = 11.sp,
                 color = TextMuted,
-                modifier = Modifier.padding(top = 2.dp, bottom = 6.dp)
+                modifier = Modifier.padding(top = 2.dp, bottom = 4.dp)
             )
         }
 
@@ -402,7 +410,7 @@ private fun BikeFleetSubPage(
             val isSelected = selectedProtocol == protocol
             Surface(
                 color = if (isSelected) Color(0xFF141A28) else Color(0xFF0C0F18),
-                shape = RoundedCornerShape(12.dp),
+                shape = RoundedCornerShape(10.dp),
                 border = androidx.compose.foundation.BorderStroke(
                     if (isSelected) 1.5.dp else 1.dp,
                     if (isSelected) AccentEnergy else Color(0xFF1E2638)
@@ -412,17 +420,15 @@ private fun BikeFleetSubPage(
                     .clickable { onSelectProtocol(protocol) }
             ) {
                 Row(
-                    modifier = Modifier.padding(14.dp),
-                    verticalAlignment = Alignment.Top,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 11.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Icon(
                         imageVector = if (isSelected) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
                         contentDescription = null,
                         tint = if (isSelected) AccentEnergy else TextDim,
-                        modifier = Modifier
-                            .size(22.dp)
-                            .padding(top = 2.dp)
+                        modifier = Modifier.size(20.dp)
                     )
 
                     Column(modifier = Modifier.weight(1f)) {
@@ -430,27 +436,138 @@ private fun BikeFleetSubPage(
                             text = protocol.displayName,
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Bold,
-                            color = if (isSelected) Color.White else TextMain
+                            color = if (isSelected) Color.White else TextMain,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
-
-                        Spacer(modifier = Modifier.height(4.dp))
+                        Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = protocol.subtitle,
-                            fontSize = 11.sp,
-                            color = TextMuted
+                            text = protocol.supportedModels,
+                            fontSize = 10.sp,
+                            color = if (isSelected) AccentSuccess else TextDim,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
+                    }
 
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = "Supported: ${protocol.supportedModels}",
-                            fontSize = 9.5.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = if (isSelected) AccentSuccess else TextDim
-                        )
+                    // Compact ? Info Button for connection details & setup tip
+                    Surface(
+                        color = Color(0xFF182032),
+                        shape = androidx.compose.foundation.shape.CircleShape,
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF2B3752)),
+                        modifier = Modifier
+                            .size(28.dp)
+                            .clickable { infoProtocol = protocol }
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text(
+                                text = "?",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Black,
+                                color = AccentEnergy
+                            )
+                        }
                     }
                 }
             }
         }
+    }
+
+    infoProtocol?.let { protocol ->
+        ProtocolConnectionInfoDialog(
+            protocol = protocol,
+            onDismiss = { infoProtocol = null }
+        )
+    }
+}
+
+@Composable
+private fun ProtocolConnectionInfoDialog(
+    protocol: BikeProtocol,
+    onDismiss: () -> Unit
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            color = Color(0xFF0C0F18),
+            shape = RoundedCornerShape(14.dp),
+            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF263046)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = protocol.displayName,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Black,
+                        color = Color.White,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Surface(
+                        color = AccentEnergy.copy(alpha = 0.16f),
+                        shape = RoundedCornerShape(4.dp)
+                    ) {
+                        Text(
+                            text = "INFO",
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Black,
+                            color = AccentEnergy,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+
+                HorizontalDivider(color = Color(0xFF1E2638), thickness = 1.dp)
+
+                ProtocolInfoRow("CONNECTION", protocol.broadcastType, AccentEnergy)
+                ProtocolInfoRow("PROTOCOL / UUID", protocol.companyOrServiceUuid, TextMain)
+                ProtocolInfoRow("SUPPORTED MODELS", protocol.supportedModels, AccentSuccess)
+                ProtocolInfoRow("SETUP TIP", protocol.setupTip, TextMuted)
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    Button(
+                        onClick = onDismiss,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = AccentEnergy,
+                            contentColor = BgMain
+                        ),
+                        shape = RoundedCornerShape(8.dp),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp)
+                    ) {
+                        Text("Got It", fontWeight = FontWeight.Black, fontSize = 12.sp)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProtocolInfoRow(label: String, value: String, valueColor: Color) {
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(
+            text = label,
+            fontSize = 9.5.sp,
+            fontWeight = FontWeight.Black,
+            color = TextDim,
+            letterSpacing = 0.8.sp
+        )
+        Text(
+            text = value,
+            fontSize = 11.5.sp,
+            fontWeight = FontWeight.Medium,
+            color = valueColor,
+            lineHeight = 16.sp
+        )
     }
 }
 
@@ -460,12 +577,139 @@ private fun BikeFleetSubPage(
 @Composable
 private fun PowerZonesSubPage(
     zoneCount: Int,
-    onZoneCountChange: (Int) -> Unit
+    defaultFtp: Int,
+    onZoneCountChange: (Int) -> Unit,
+    onDefaultFtpChange: (Int) -> Unit
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
+        item {
+            Text(
+                text = "DEFAULT STUDIO FTP",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Black,
+                color = TextDim,
+                letterSpacing = 1.sp
+            )
+            Text(
+                text = "Used for any bike without an individual FTP set. Tap any bike tile on the leaderboard to override its FTP.",
+                fontSize = 11.sp,
+                color = TextMuted,
+                modifier = Modifier.padding(top = 2.dp, bottom = 6.dp)
+            )
+
+            Surface(
+                color = Color(0xFF0C0F18),
+                shape = RoundedCornerShape(10.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF1E2638)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            DefaultFtpAdjustChip("-10") {
+                                onDefaultFtpChange(
+                                    (defaultFtp - 10).coerceIn(
+                                        RiderProfileRepository.MIN_FTP_WATTS,
+                                        RiderProfileRepository.MAX_FTP_WATTS
+                                    )
+                                )
+                            }
+                            DefaultFtpAdjustChip("-5") {
+                                onDefaultFtpChange(
+                                    (defaultFtp - 5).coerceIn(
+                                        RiderProfileRepository.MIN_FTP_WATTS,
+                                        RiderProfileRepository.MAX_FTP_WATTS
+                                    )
+                                )
+                            }
+                        }
+
+                        Row(
+                            verticalAlignment = Alignment.Bottom,
+                            horizontalArrangement = Arrangement.spacedBy(3.dp)
+                        ) {
+                            Text(
+                                text = "$defaultFtp",
+                                fontFamily = Dseg7FontFamily,
+                                fontSize = 24.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = AccentEnergy
+                            )
+                            Text(
+                                text = "W",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Black,
+                                color = TextMuted,
+                                modifier = Modifier.padding(bottom = 3.dp)
+                            )
+                        }
+
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            DefaultFtpAdjustChip("+5") {
+                                onDefaultFtpChange(
+                                    (defaultFtp + 5).coerceIn(
+                                        RiderProfileRepository.MIN_FTP_WATTS,
+                                        RiderProfileRepository.MAX_FTP_WATTS
+                                    )
+                                )
+                            }
+                            DefaultFtpAdjustChip("+10") {
+                                onDefaultFtpChange(
+                                    (defaultFtp + 10).coerceIn(
+                                        RiderProfileRepository.MIN_FTP_WATTS,
+                                        RiderProfileRepository.MAX_FTP_WATTS
+                                    )
+                                )
+                            }
+                        }
+                    }
+
+                    // Quick Presets
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        listOf(120, 150, 180, 200, 250).forEach { preset ->
+                            val isSelected = defaultFtp == preset
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(if (isSelected) AccentEnergy else Color(0xFF151926))
+                                    .border(
+                                        1.dp,
+                                        if (isSelected) AccentEnergy else Color(0xFF262D42),
+                                        RoundedCornerShape(6.dp)
+                                    )
+                                    .clickable { onDefaultFtpChange(preset) }
+                                    .padding(vertical = 6.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "${preset}W",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Black,
+                                    color = if (isSelected) BgMain else TextMain,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         item {
             Text(
                 text = "POWER TRAINING MODEL",
@@ -523,7 +767,7 @@ private fun PowerZonesSubPage(
 
         item {
             Text(
-                text = "CURRENT ZONE BREAKDOWN ($zoneCount ZONES)",
+                text = "ZONE BREAKDOWN ($zoneCount ZONES @ ${defaultFtp}W FTP)",
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Black,
                 color = TextDim,
@@ -532,27 +776,34 @@ private fun PowerZonesSubPage(
             )
         }
 
+        val w55 = (defaultFtp * 55) / 100
+        val w75 = (defaultFtp * 75) / 100
+        val w90 = (defaultFtp * 90) / 100
+        val w105 = (defaultFtp * 105) / 100
+        val w120 = (defaultFtp * 120) / 100
+        val w150 = (defaultFtp * 150) / 100
+
         val zones = if (zoneCount == 7) {
             listOf(
-                FtpZone.ZONE_1 to "< 55% Active Recovery",
-                FtpZone.ZONE_2 to "56 – 75% Endurance",
-                FtpZone.ZONE_3 to "76 – 90% Tempo",
-                FtpZone.ZONE_4 to "91 – 105% Lactate Threshold",
-                FtpZone.ZONE_5 to "106 – 120% VO2 Max",
-                FtpZone.ZONE_6 to "121 – 150% Anaerobic Capacity",
-                FtpZone.ZONE_7 to "> 150% Neuromuscular Power"
+                Triple(FtpZone.ZONE_1, "≤ 55% Active Recovery", "≤ ${w55}W"),
+                Triple(FtpZone.ZONE_2, "56 – 75% Endurance", "${w55 + 1} – ${w75}W"),
+                Triple(FtpZone.ZONE_3, "76 – 90% Tempo", "${w75 + 1} – ${w90}W"),
+                Triple(FtpZone.ZONE_4_7Z, "91 – 105% Lactate Threshold", "${w90 + 1} – ${w105}W"),
+                Triple(FtpZone.ZONE_5_7Z, "106 – 120% VO2 Max", "${w105 + 1} – ${w120}W"),
+                Triple(FtpZone.ZONE_6, "121 – 150% Anaerobic Capacity", "${w120 + 1} – ${w150}W"),
+                Triple(FtpZone.ZONE_7, "> 150% Neuromuscular Power", "> ${w150}W")
             )
         } else {
             listOf(
-                FtpZone.ZONE_1 to "< 55% Recovery",
-                FtpZone.ZONE_2 to "56 – 75% Endurance",
-                FtpZone.ZONE_3 to "76 – 90% Tempo",
-                FtpZone.ZONE_4 to "91 – 105% Threshold",
-                FtpZone.ZONE_5 to "> 105% VO2 Max"
+                Triple(FtpZone.ZONE_1, "≤ 55% Recovery", "≤ ${w55}W"),
+                Triple(FtpZone.ZONE_2, "56 – 75% Endurance", "${w55 + 1} – ${w75}W"),
+                Triple(FtpZone.ZONE_3, "76 – 90% Tempo", "${w75 + 1} – ${w90}W"),
+                Triple(FtpZone.ZONE_4, "91 – 105% Threshold", "${w90 + 1} – ${w105}W"),
+                Triple(FtpZone.ZONE_5, "> 105% VO2 Max", "> ${w105}W")
             )
         }
 
-        items(zones) { (zone, desc) ->
+        items(zones) { (zone, desc, wattRange) ->
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -581,9 +832,41 @@ private fun PowerZonesSubPage(
                     text = desc,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
-                    color = Color.White
+                    color = Color.White,
+                    modifier = Modifier.weight(1f)
+                )
+
+                Text(
+                    text = wattRange,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Black,
+                    color = zone.color
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun DefaultFtpAdjustChip(label: String, onClick: () -> Unit) {
+    Surface(
+        color = Color(0xFF151926),
+        shape = RoundedCornerShape(6.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF262D42)),
+        modifier = Modifier
+            .height(34.dp)
+            .clickable { onClick() }
+    ) {
+        Box(
+            modifier = Modifier.padding(horizontal = 10.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = label,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Black,
+                color = AccentEnergy
+            )
         }
     }
 }
@@ -597,6 +880,7 @@ private fun BluetoothScannerSubPage(
     isDemoMode: Boolean,
     activeBikeCount: Int,
     selectedProtocol: BikeProtocol,
+    antPlusStatus: String,
     onBleToggle: () -> Unit,
     onDemoToggle: (Boolean) -> Unit
 ) {
@@ -655,6 +939,20 @@ private fun BluetoothScannerSubPage(
                 ) {
                     Text("FILTER PROTOCOL", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = TextMuted)
                     Text(selectedProtocol.displayName, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = AccentEnergy)
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("USB ANT+ FE-C", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = TextMuted)
+                    Text(
+                        text = antPlusStatus,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (antPlusStatus.contains("Active", ignoreCase = true)) AccentSuccess else TextDim
+                    )
                 }
 
                 Spacer(modifier = Modifier.height(2.dp))
@@ -768,14 +1066,14 @@ private fun KnowledgeBaseSubPage() {
                 icon = "🚴‍♂️"
             ) {
                 Text(
-                    text = "LiveFleet Studio is a professional, high-performance cycling and multi-erg fitness studio leaderboard and power training companion designed for cycling studios, row/ski facilities, gyms, and home training setups.",
+                    text = "LiveFleet Studio is a multi-brand indoor cycling and erg studio leaderboard designed for gyms, cycling studios, rowing/ski zones, and home training setups.",
                     fontSize = 11.sp,
                     color = TextMain,
                     lineHeight = 16.sp
                 )
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
-                    text = "Unlike standard fitness apps that require manual 1-to-1 Bluetooth pairing, LiveFleet Studio operates via connectionless passive Bluetooth Low Energy (BLE) broadcast listening. A single Android device, TV, or projector can monitor 1, 12, 30, or 60+ bikes, ergs, and smart trainers simultaneously without pairing limits or connection lag.",
+                    text = "It combines three real-world wireless transports — Passive BLE Broadcasts, Active BLE GATT, and Native USB ANT+ — so one Android phone, tablet, or HDMI TV/DeX display can run everything from a single home erg to a 30+ bike commercial studio.",
                     fontSize = 11.sp,
                     color = TextMuted,
                     lineHeight = 16.sp
@@ -783,49 +1081,71 @@ private fun KnowledgeBaseSubPage() {
             }
         }
 
-        // Section 2: Key Features
+        // Section 2: Connection Types Comparison Table
+        item {
+            KnowledgeSectionCard(
+                title = "CONNECTION TYPES & CAPACITY",
+                icon = "📶"
+            ) {
+                Text(
+                    text = "Different bike brands transmit data using different wireless protocols. LiveFleet Studio chooses the right transport automatically:",
+                    fontSize = 10.5.sp,
+                    color = TextMuted,
+                    lineHeight = 15.sp
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                ConnectionTypesTable()
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "Auto-Priority: When a USB-C ANT+ dongle is plugged in, ANT+ automatically takes priority for non-Keiser bikes so you get 30+ bike capacity with zero duplicate tiles. Unplugging it falls back to built-in BLE GATT automatically.",
+                    fontSize = 10.sp,
+                    color = AccentEnergy,
+                    lineHeight = 14.sp
+                )
+            }
+        }
+
+        // Section 3: Key Features
         item {
             KnowledgeSectionCard(
                 title = "KEY FEATURES & CAPABILITIES",
                 icon = "✨"
             ) {
-                KnowledgeBullet("Connectionless BLE Broadcasts", "Receives open telemetry packets from any bike in range without riders having to pair their bikes.")
-                KnowledgeBullet("Dual Display Modes", "Switch freely between floating Tachometer Gauges (Ride By Color dial arcs) and High-Density Table view.")
-                KnowledgeBullet("5-Zone & 7-Zone Power Models", "Support for Keiser Ride By Color (5 zones) or Coggan athletic sprint training (7 zones).")
-                KnowledgeBullet("Group FTP Testing Engine", "Conduct studio-wide 5-minute (85% factor) or 20-minute (95% factor) FTP tests with audio-visual countdown and 80–90 RPM cadence alert.")
-                KnowledgeBullet("Dynamic Fit-to-Screen Matrix", "Zero vertical scrolling: the app auto-calculates grid dimensions to display all active bikes on one screen.")
-                KnowledgeBullet("Persistent Results Re-Entry", "Completed FTP results remain accessible throughout class for cool-down review via the top-bar 'Last FTP Results' button.")
-                KnowledgeBullet("Dedicated Digital Stopwatch", "High-visibility 7-segment session timer with Start, Pause, and Reset for class intervals.")
+                KnowledgeBullet("Native Per-Brand Consoles", "Each brand displays in its own authentic studio layout: Keiser Ride By Color Dial, Stages SC3 LCD, Schwinn Echelon2, Concept2 PM5 (auto-detects BikeErg / RowErg / SkiErg), Wattbike Air-Pro, and Pro Power Head Unit.")
+                KnowledgeBullet("Last-5-Digit Serial Matching", "Long serial numbers (e.g. PM5 530339622 or AIR-PRO 34002379) automatically show their last 5 digits (39622 / 02379) so riders spot their machine immediately.")
+                KnowledgeBullet("Tap-to-Edit FTP & Studio Default", "Tap any bike tile or table row to set Rider Name and FTP (with live zone preview), or set a Default Studio FTP under Power Training & Zones.")
+                KnowledgeBullet("Big-Screen & 30+ Bike Auto-Fit", "Proportional scaling makes Watts and RPM crisp from across the room on HDMI TVs / Samsung DeX, while automatically switching to ultra-dense auto-fit for 20–30+ bike grids with zero scrolling.")
+                KnowledgeBullet("Auto-Idle Cleanup & BLE Watchdog", "Unused bikes dim to IDLE after 15s and clear off the screen after 60s so active bikes expand. Built-in BLE auto-recovery keeps scans alive during long classes.")
+                KnowledgeBullet("5-Zone / 7-Zone & Group FTP Tests", "Supports 5-Zone Keiser or 7-Zone Coggan models, plus studio-wide 5-min (85%) or 20-min (95%) FTP tests with 80–90 RPM cadence alerts and saved results.")
             }
         }
 
-        // Section 3: Supported Bikes
+        // Section 4: Supported Bikes & Hardware
         item {
             KnowledgeSectionCard(
                 title = "SUPPORTED BIKES & HARDWARE",
                 icon = "📡"
             ) {
-                KnowledgeBullet("Keiser M3i / M3i Studio", "Decodes authentic Keiser broadcasts including Watts, RPM, Resistance Gear, Heart Rate, and Energy.")
-                KnowledgeBullet("Stages SC3 / Stages Power", "Commercial studio indoor bikes and Stages Power cranks broadcasting dual-sided watts and cadence.")
-                KnowledgeBullet("Schwinn Carbon Blue / 4iiii", "Schwinn AC Performance Plus bikes equipped with 4iiii Precision power cranks.")
-                KnowledgeBullet("Concept2 BikeErg / PM5", "PM5 console broadcast beacons transmitting watts, cadence, split pace, and distance.")
-                KnowledgeBullet("Standard FTMS Smart Bikes", "Commercial indoor smart bikes utilizing the Bluetooth SIG Fitness Machine Service standard (Wattbike, Life Fitness, Technogym, Matrix).")
-                KnowledgeBullet("Cycling Power Profile", "Third-party pedals and crank power meters (Favero Assioma, Garmin Rally, Quarq, SRM).")
+                KnowledgeBullet("Keiser M3i / M3i Studio", "Passive BLE broadcast (0x0102) — unlimited 30+ bikes with zero pairing or extra hardware.")
+                KnowledgeBullet("Stages SC3 / SC2 / SB20", "BLE GATT Cycling Power (0x1818) for 1–6 bikes, or USB ANT+ Bicycle Power (0x0B) for 30+ studio bikes.")
+                KnowledgeBullet("Schwinn Carbon Blue / Echelon2 / 4iiii", "4iiii cranks connect via BLE GATT (0x1818) or ANT+. Standard MPower Echelon2 consoles are ANT+ only (use a USB-C ANT+ dongle).")
+                KnowledgeBullet("Concept2 BikeErg / RowErg / SkiErg (PM5)", "BLE GATT (CE060030) for 1–6 ergs via PM5 Connect menu, or USB ANT+ FE-C for 10–30+ Group Class ergs.")
+                KnowledgeBullet("Wattbike Air-Pro / Atom & FTMS Bikes", "BLE GATT FTMS (0x1826 -> 0x2AD2) and USB ANT+ FE-C/Power (Wattbike, Life Fitness IC5–8, Technogym, Matrix, Body Bike).")
+                KnowledgeBullet("Power Pedals & Cranks", "BLE GATT Cycling Power (0x1818 -> 0x2A63) and USB ANT+ Power (Favero Assioma, Garmin Rally, Quarq, SRM, PowerTap).")
             }
         }
 
-        // Section 4: How to Use
+        // Section 5: How to Use
         item {
             KnowledgeSectionCard(
                 title = "HOW TO USE (QUICK START GUIDE)",
                 icon = "📖"
             ) {
-                KnowledgeStep(1, "Wake Up Your Fleet", "Riders start pedaling to activate their bike's Bluetooth broadcast transmitter.")
-                KnowledgeStep(2, "Tap Scan in Top Bar", "Tap 'Scan' (or enable Demo mode for testing). Bikes in range stream telemetry into live tiles automatically.")
-                KnowledgeStep(3, "Calibrate Rider Profiles", "Tap any bike tile to set the rider's name and individual FTP. All zone percentages immediately recalibrate to that rider.")
-                KnowledgeStep(4, "Run Group FTP Tests", "Tap '⚡ FTP' in the top bar. Choose a 5-minute or 20-minute test. A 5-second countdown prepares riders, and dials highlight cadence if outside 80–90 RPM.")
-                KnowledgeStep(5, "Save & Review Results", "When the test concludes, view the single-screen results leaderboard. Apply new FTPs for this session with 'Done', and re-open the results anytime via 'Last FTP Results'.")
-                KnowledgeStep(6, "Dedicated Stopwatch", "Use the top-bar digital session timer to track overall class duration or individual interval sprints with Start, Pause, and Reset.")
+                KnowledgeStep(1, "Select Your Bike Brand", "Open Settings -> Bike and Brand to pick your studio equipment (or Auto-Detect All Brands). Tap '?' on any brand for quick setup tips.")
+                KnowledgeStep(2, "Start Scanning", "Tap 'Start Scan' on the main screen (ensure Bluetooth and Location Services are ON). To preview layouts without bikes, toggle Demo Mode under Settings -> Bluetooth Scanner.")
+                KnowledgeStep(3, "Calibrate Rider FTP", "Tap any bike tile (or Table row) to set that rider's Name and FTP so zones match the bike screen, or adjust the Default Studio FTP in Power Training & Zones.")
+                KnowledgeStep(4, "Project to a Big Screen", "Connect your phone via USB-C HDMI (Samsung DeX recommended for edge-to-edge 16:9). Bikes default to Bike # order so tiles stay in fixed studio positions.")
+                KnowledgeStep(5, "Run Group FTP Tests & Timers", "Use '⚡ FTP TEST' for 5- or 20-minute tests with countdown and cadence alerts, and the 7-segment Session Timer for class intervals.")
             }
         }
 
@@ -867,7 +1187,7 @@ private fun KnowledgeBaseSubPage() {
                     }
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "Created by KayAyyFit",
+                        text = "Created by ${AppConfig.CREATOR}",
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color.White
@@ -882,6 +1202,111 @@ private fun KnowledgeBaseSubPage() {
                 }
             }
             Spacer(modifier = Modifier.height(20.dp))
+        }
+    }
+}
+
+@Composable
+private fun ConnectionTypesTable() {
+    data class ConnRow(
+        val type: String,
+        val usedFor: String,
+        val capacity: String,
+        val accent: Color
+    )
+
+    val rows = listOf(
+        ConnRow(
+            type = "Passive BLE\n(0x0102)",
+            usedFor = "Keiser M3i / Studio (open broadcast, no pairing)",
+            capacity = "30+ bikes\nBuilt-in BT",
+            accent = AccentEnergy
+        ),
+        ConnRow(
+            type = "BLE GATT\n(CE06 / 1826 / 1818)",
+            usedFor = "Concept2 PM5, Wattbike/FTMS, Stages, 4iiii, Pedals",
+            capacity = "1–6 bikes\nBuilt-in BT",
+            accent = AccentPrimary
+        ),
+        ConnRow(
+            type = "USB ANT+\n(FE-C & Power)",
+            usedFor = "Concept2 Group Classes, Stages, Schwinn Echelon2, Wattbike, Pedals",
+            capacity = "30+ bikes\nUSB dongle",
+            accent = AccentSuccess
+        )
+    )
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .border(1.dp, Color(0xFF232C40), RoundedCornerShape(8.dp))
+            .background(Color(0xFF080A10))
+    ) {
+        // Table Header
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Color(0xFF131826))
+                .padding(horizontal = 8.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "TRANSPORT",
+                fontSize = 9.sp,
+                fontWeight = FontWeight.Black,
+                color = TextDim,
+                modifier = Modifier.weight(0.95f)
+            )
+            Text(
+                text = "USED FOR",
+                fontSize = 9.sp,
+                fontWeight = FontWeight.Black,
+                color = TextDim,
+                modifier = Modifier.weight(1.45f)
+            )
+            Text(
+                text = "CAPACITY",
+                fontSize = 9.sp,
+                fontWeight = FontWeight.Black,
+                color = TextDim,
+                modifier = Modifier.weight(0.8f)
+            )
+        }
+
+        rows.forEachIndexed { idx, row ->
+            HorizontalDivider(color = Color(0xFF1C2334), thickness = 1.dp)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(if (idx % 2 == 0) Color(0xFF0A0D14) else Color(0xFF0E121C))
+                    .padding(horizontal = 8.dp, vertical = 7.dp),
+                verticalAlignment = Alignment.Top
+            ) {
+                Text(
+                    text = row.type,
+                    fontSize = 9.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = row.accent,
+                    lineHeight = 13.sp,
+                    modifier = Modifier.weight(0.95f).padding(end = 6.dp)
+                )
+                Text(
+                    text = row.usedFor,
+                    fontSize = 9.5.sp,
+                    color = TextMain,
+                    lineHeight = 13.sp,
+                    modifier = Modifier.weight(1.45f).padding(end = 6.dp)
+                )
+                Text(
+                    text = row.capacity,
+                    fontSize = 9.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextMuted,
+                    lineHeight = 13.sp,
+                    modifier = Modifier.weight(0.8f)
+                )
+            }
         }
     }
 }

@@ -80,22 +80,21 @@ fun SchwinnEchelon2Console(
     ) {
         val totalHeight = maxHeight
         val totalWidth = maxWidth
-        val isVeryCompact = totalHeight < 138.dp || totalWidth < 135.dp || isCompact
-        val showKcalCell = totalWidth >= 112.dp
+        val minDim = minOf(totalWidth.value, totalHeight.value)
+        val isUltraDense = totalHeight < 92.dp || totalWidth < 95.dp
+        val isVeryCompact = isUltraDense || totalHeight < 138.dp || totalWidth < 135.dp || isCompact
+        val showFtpCell = !isUltraDense && totalWidth >= 112.dp
         val showBezelFooter = !isVeryCompact && totalHeight >= 158.dp
 
-        val wattsFontSize: TextUnit = when {
-            totalHeight < 108.dp || totalWidth < 110.dp -> 19.sp
-            isVeryCompact -> 24.sp
-            totalHeight >= 210.dp && totalWidth >= 230.dp -> 40.sp
-            else -> 32.sp
-        }
-        val footerFontSize: TextUnit = when {
-            totalHeight < 108.dp || totalWidth < 110.dp -> 11.5.sp
-            isVeryCompact -> 13.5.sp
-            totalHeight >= 210.dp && totalWidth >= 230.dp -> 20.sp
-            else -> 16.sp
-        }
+        val wattsText = "${bike.powerWatts}"
+        val wattsFontSize: TextUnit = (
+            (minDim * 0.25f).coerceIn(if (isUltraDense) 12f else 19f, 92f) *
+                if (wattsText.length >= 4) 0.78f else 1f
+            ).sp
+        val wattsUnitFontSize: TextUnit = (minDim * 0.068f).coerceIn(if (isUltraDense) 6.5f else 7.5f, 24f).sp
+        val footerFontSize: TextUnit = (minDim * 0.135f).coerceIn(if (isUltraDense) 9.5f else 12f, 48f).sp
+        val footerLabelFontSize: TextUnit = (minDim * 0.052f).coerceIn(if (isUltraDense) 6f else 6.5f, 18f).sp
+        val headerFontSize: TextUnit = (minDim * 0.072f).coerceIn(if (isUltraDense) 7.5f else 8.5f, 24f).sp
 
         // OUTER CARBON BEZEL (Schwinn MPower Echelon2 Housing)
         Column(
@@ -175,10 +174,10 @@ fun SchwinnEchelon2Console(
                                             .background(SchwinnRed)
                                     )
                                     Text(
-                                        text = "#${bike.bikeId}",
+                                        text = bike.displayId.ifEmpty { "#${bike.bikeId}" },
                                         fontFamily = Dseg7FontFamily,
                                         fontWeight = FontWeight.Bold,
-                                        fontSize = if (isVeryCompact) 9.sp else 10.5.sp,
+                                        fontSize = headerFontSize,
                                         color = Color.White,
                                         maxLines = 1,
                                         softWrap = false
@@ -186,8 +185,12 @@ fun SchwinnEchelon2Console(
                                 }
 
                                 Text(
-                                    text = if (bike.isStale) "IDLE" else "Z${bike.ftpZone.zoneNumber} ${bike.ftpPercent}%",
-                                    fontSize = if (isVeryCompact) 8.sp else 9.5.sp,
+                                    text = when {
+                                        bike.isStale -> "IDLE"
+                                        showFtpCell -> "Z${bike.ftpZone.zoneNumber}"
+                                        else -> "Z${bike.ftpZone.zoneNumber} ${bike.ftpPercent}%"
+                                    },
+                                    fontSize = headerFontSize,
                                     fontWeight = FontWeight.Black,
                                     color = if (bike.isStale) Color(0xFFFCA5A5) else zoneColor,
                                     maxLines = 1,
@@ -204,96 +207,167 @@ fun SchwinnEchelon2Console(
                         )
                     }
 
-                    // 2. HERO CENTER READOUT: POWER (WATTS)
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f),
-                        contentAlignment = Alignment.Center
-                    ) {
+                    // 2. HERO / METRICS AREA (Switches to crisp single-row inline readout in ultra-dense grids)
+                    if (isUltraDense) {
+                        val denseWattsSize = (totalHeight.value * 0.22f).coerceIn(11f, 17f).sp
+                        val denseRpmSize = (totalHeight.value * 0.17f).coerceIn(9.5f, 14f).sp
+                        val denseUnitSize = (totalHeight.value * 0.10f).coerceIn(6f, 8.5f).sp
                         Row(
-                            verticalAlignment = Alignment.Bottom,
-                            horizontalArrangement = Arrangement.Center
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f)
+                                .padding(horizontal = 2.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Box(contentAlignment = Alignment.CenterEnd) {
-                                Text(
-                                    text = "888",
-                                    fontFamily = Dseg7FontFamily,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = wattsFontSize,
-                                    color = SchwinnGhost,
-                                    maxLines = 1,
-                                    softWrap = false
-                                )
+                            Row(verticalAlignment = Alignment.Bottom) {
                                 Text(
                                     text = "${bike.powerWatts}",
                                     fontFamily = Dseg7FontFamily,
                                     fontWeight = FontWeight.Bold,
-                                    fontSize = wattsFontSize,
+                                    fontSize = denseWattsSize,
                                     color = Color.White,
                                     maxLines = 1,
                                     softWrap = false
                                 )
+                                Text(
+                                    text = "W",
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = denseUnitSize,
+                                    fontWeight = FontWeight.Black,
+                                    color = SchwinnCarbonBlue,
+                                    modifier = Modifier.padding(start = 1.dp, bottom = 1.dp),
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
                             }
-                            Spacer(modifier = Modifier.width(if (isVeryCompact) 3.dp else 4.dp))
-                            Text(
-                                text = if (isVeryCompact) "W" else "WATTS",
-                                fontFamily = FontFamily.Monospace,
-                                fontSize = if (isVeryCompact) 7.5.sp else 9.sp,
-                                fontWeight = FontWeight.Black,
-                                color = SchwinnCarbonBlue,
-                                modifier = Modifier.padding(bottom = if (isVeryCompact) 2.dp else 4.dp),
-                                maxLines = 1,
-                                softWrap = false
-                            )
+
+                            Row(
+                                modifier = if (isCadenceAlert) {
+                                    Modifier
+                                        .clip(RoundedCornerShape(3.dp))
+                                        .background(AccentDanger.copy(alpha = alertAlpha))
+                                        .padding(horizontal = 3.dp, vertical = 1.dp)
+                                } else {
+                                    Modifier
+                                },
+                                verticalAlignment = Alignment.Bottom
+                            ) {
+                                Text(
+                                    text = "${bike.cadenceRpm.toInt()}",
+                                    fontFamily = Dseg7FontFamily,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = denseRpmSize,
+                                    color = if (isCadenceAlert) Color.White else Color(0xFFCBD5E1),
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                                Text(
+                                    text = "RPM",
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = denseUnitSize,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isCadenceAlert) Color.White else SchwinnInkMuted,
+                                    modifier = Modifier.padding(start = 1.dp, bottom = 1.dp),
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            }
                         }
-                    }
+                    } else {
+                        // HERO CENTER READOUT: POWER (WATTS)
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.Bottom,
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                Box(contentAlignment = Alignment.CenterEnd) {
+                                    Text(
+                                        text = if (wattsText.length >= 4) "8888" else "888",
+                                        fontFamily = Dseg7FontFamily,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = wattsFontSize,
+                                        color = SchwinnGhost,
+                                        maxLines = 1,
+                                        softWrap = false
+                                    )
+                                    Text(
+                                        text = wattsText,
+                                        fontFamily = Dseg7FontFamily,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = wattsFontSize,
+                                        color = Color.White,
+                                        maxLines = 1,
+                                        softWrap = false
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(if (isVeryCompact) 3.dp else 4.dp))
+                                Text(
+                                    text = if (isVeryCompact) "W" else "WATTS",
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = wattsUnitFontSize,
+                                    fontWeight = FontWeight.Black,
+                                    color = SchwinnCarbonBlue,
+                                    modifier = Modifier.padding(bottom = if (isVeryCompact) 2.dp else 4.dp),
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            }
+                        }
 
-                    // 3. HAIRLINE DIVIDER
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(1.dp)
-                            .background(SchwinnRule)
-                    )
-
-                    // 4. COMPACT FOOTER ROW: RPM | KCAL
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = if (isVeryCompact) 2.dp else 3.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        SchwinnFooterCell(
-                            value = "${bike.cadenceRpm.toInt()}",
-                            ghost = "888",
-                            label = "RPM",
-                            fontSize = footerFontSize,
-                            isVeryCompact = isVeryCompact,
-                            isAlert = isCadenceAlert,
-                            alertAlpha = alertAlpha,
-                            modifier = Modifier.weight(1f)
+                        // 3. HAIRLINE DIVIDER
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(1.dp)
+                                .background(SchwinnRule)
                         )
 
-                        if (showKcalCell) {
-                            Box(
-                                modifier = Modifier
-                                    .width(1.dp)
-                                    .height(if (isVeryCompact) 16.dp else 22.dp)
-                                    .background(SchwinnRule)
-                            )
-
+                        // 4. COMPACT FOOTER ROW: RPM | %FTP
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = if (isVeryCompact) 2.dp else 3.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
                             SchwinnFooterCell(
-                                value = "${bike.calories}",
+                                value = "${bike.cadenceRpm.toInt()}",
                                 ghost = "888",
-                                label = "KCAL",
+                                label = "RPM",
                                 fontSize = footerFontSize,
-                                isVeryCompact = isVeryCompact,
-                                isAlert = false,
-                                alertAlpha = 1f,
+                                labelFontSize = footerLabelFontSize,
+                                valueColor = Color(0xFFE2E8F0),
+                                isAlert = isCadenceAlert,
+                                alertAlpha = alertAlpha,
                                 modifier = Modifier.weight(1f)
                             )
+
+                            if (showFtpCell) {
+                                Box(
+                                    modifier = Modifier
+                                        .width(1.dp)
+                                        .height((minDim * 0.14f).coerceIn(16f, 44f).dp)
+                                        .background(SchwinnRule)
+                                )
+
+                                SchwinnFooterCell(
+                                    value = "${bike.ftpPercent}",
+                                    ghost = if (bike.ftpPercent >= 1000) "8888" else "888",
+                                    label = "% FTP",
+                                    fontSize = footerFontSize,
+                                    labelFontSize = footerLabelFontSize,
+                                    valueColor = zoneColor,
+                                    isAlert = false,
+                                    alertAlpha = 1f,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
                         }
                     }
                 }
@@ -403,7 +477,8 @@ private fun SchwinnFooterCell(
     ghost: String,
     label: String,
     fontSize: TextUnit,
-    isVeryCompact: Boolean,
+    labelFontSize: TextUnit,
+    valueColor: Color,
     isAlert: Boolean,
     alertAlpha: Float,
     modifier: Modifier = Modifier
@@ -424,13 +499,14 @@ private fun SchwinnFooterCell(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Box(contentAlignment = Alignment.Center) {
+        val effectiveFontSize = if (value.length >= 4) (fontSize.value * 0.78f).sp else fontSize
+        Box(contentAlignment = Alignment.CenterEnd) {
             if (!isAlert) {
                 Text(
                     text = ghost,
                     fontFamily = Dseg7FontFamily,
                     fontWeight = FontWeight.Bold,
-                    fontSize = fontSize,
+                    fontSize = effectiveFontSize,
                     color = SchwinnGhost,
                     maxLines = 1,
                     softWrap = false
@@ -440,8 +516,8 @@ private fun SchwinnFooterCell(
                 text = value,
                 fontFamily = Dseg7FontFamily,
                 fontWeight = FontWeight.Bold,
-                fontSize = fontSize,
-                color = if (isAlert) Color.White else Color(0xFFE2E8F0),
+                fontSize = effectiveFontSize,
+                color = if (isAlert) Color.White else valueColor,
                 maxLines = 1,
                 softWrap = false
             )
@@ -449,7 +525,7 @@ private fun SchwinnFooterCell(
         Text(
             text = if (isAlert) "$label !" else label,
             fontFamily = FontFamily.Monospace,
-            fontSize = if (isVeryCompact) 6.sp else 7.sp,
+            fontSize = labelFontSize,
             fontWeight = FontWeight.Bold,
             color = if (isAlert) Color.White else SchwinnInkMuted,
             letterSpacing = 0.3.sp,

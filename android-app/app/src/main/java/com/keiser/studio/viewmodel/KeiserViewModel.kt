@@ -3,7 +3,9 @@ package com.keiser.studio.viewmodel
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.keiser.studio.bluetooth.AntPlusUsbReceiver
 import com.keiser.studio.bluetooth.KeiserBleScanner
+import com.keiser.studio.bluetooth.UniversalGattManager
 import com.keiser.studio.data.RiderProfileRepository
 import com.keiser.studio.model.BikeData
 import com.keiser.studio.model.BikeProtocol
@@ -29,19 +31,23 @@ data class KeiserUiState(
     val averageCadence: Float = 0f,
     val isScanning: Boolean = false,
     val isDemoMode: Boolean = false,
-    val sortOrder: SortOrder = SortOrder.WATTS,
+    val sortOrder: SortOrder = SortOrder.BIKE_NUMBER,
     val ftpTest: FtpTestState = FtpTestState(),
     val sessionElapsedSeconds: Long = 0L,
     val isSessionTimerRunning: Boolean = false,
     val viewMode: LeaderboardViewMode = LeaderboardViewMode.GAUGES,
     val zoneCount: Int = 5, // 5 or 7 zones
+    val defaultFtp: Int = RiderProfileRepository.DEFAULT_FTP_WATTS,
     val selectedProtocol: BikeProtocol = BikeProtocol.KEISER,
+    val antPlusStatus: String = "No USB ANT+ Dongle",
     val isSettingsOpen: Boolean = false
 )
 
 class KeiserViewModel(application: Application) : AndroidViewModel(application) {
 
     private val bleScanner = KeiserBleScanner(application)
+    private val gattManager = UniversalGattManager(application)
+    private val antPlusReceiver = AntPlusUsbReceiver(application)
     private val repository = RiderProfileRepository(application)
 
     private val _uiState = MutableStateFlow(KeiserUiState())
@@ -52,6 +58,8 @@ class KeiserViewModel(application: Application) : AndroidViewModel(application) 
     private var ftpTimerJob: Job? = null
     private var staleCheckJob: Job? = null
     private var sessionTimerJob: Job? = null
+    private var scanWatchdogJob: Job? = null
+    private var lastScanRefreshMs: Long = 0L
 
     private data class DemoRiderConfig(
         val id: Int,
@@ -83,6 +91,14 @@ class KeiserViewModel(application: Application) : AndroidViewModel(application) 
             repository.getBikeProtocol().collect { protocol ->
                 _uiState.update { it.copy(selectedProtocol = protocol) }
                 bleScanner.setProtocol(protocol)
+                antPlusReceiver.setProtocol(protocol)
+            }
+        }
+
+        // Load persisted default studio FTP
+        viewModelScope.launch {
+            repository.getDefaultFtp().collect { defaultFtp ->
+                _uiState.update { it.copy(defaultFtp = defaultFtp) }
             }
         }
 
@@ -93,21 +109,112 @@ class KeiserViewModel(application: Application) : AndroidViewModel(application) 
             }
         }
 
-        // Stale bike checker (10 seconds timeout)
+        // Auto-connect BLE GATT (Concept2 PM5, FTMS 0x1826, Cycling Power 0x1818) up to 6 bikes.
+        // Auto-priority: if a USB ANT+ dongle is actively scanning, USB ANT+ handles non-Keiser
+        // bikes/ergs across the whole room (no 6-device cap, zero duplicate tiles).
+        viewModelScope.launch {
+            bleScanner.gattDeviceFlow.collect { discovered ->
+                if (_uiState.value.isScanning && !antPlusReceiver.isActiveFlow.value) {
+                    gattManager.connectIfNeeded(
+                        device = discovered.device,
+                        advertisedName = discovered.advertisedName,
+                        meta = discovered.meta
+                    )
+                }
+            }
+        }
+
+        // Collect live unified BLE GATT telemetry (Concept2, Wattbike/FTMS, Stages, Schwinn 4iiii, Power Meters)
+        viewModelScope.launch {
+            gattManager.bikeDataFlow.collect { rawBike ->
+                processIncomingBike(rawBike)
+            }
+        }
+
+        // Collect live USB ANT+ telemetry (FE-C 0x11 & Bike Power 0x0B — 10–30+ group bikes/ergs)
+        viewModelScope.launch {
+            antPlusReceiver.bikeDataFlow.collect { rawBike ->
+                if (_uiState.value.selectedProtocol != BikeProtocol.KEISER) {
+                    processIncomingBike(rawBike)
+                }
+            }
+        }
+
+        // Auto-priority switch: when USB ANT+ activates, drop BLE GATT sessions to avoid duplicates
+        viewModelScope.launch {
+            antPlusReceiver.isActiveFlow.collect { isAntActive ->
+                if (isAntActive) {
+                    gattManager.disconnectAll()
+                }
+            }
+        }
+
+        // Track USB ANT+ dongle status
+        viewModelScope.launch {
+            antPlusReceiver.statusFlow.collect { status ->
+                _uiState.update { it.copy(antPlusStatus = status) }
+            }
+        }
+
+        // Sync BLE scanner failure events with UI state and attempt gentle recovery
+        viewModelScope.launch {
+            bleScanner.scanFailedFlow.collect {
+                if (_uiState.value.isScanning) {
+                    delay(1500)
+                    val restarted = bleScanner.startScan()
+                    if (!restarted) {
+                        _uiState.update { it.copy(isScanning = false) }
+                    }
+                }
+            }
+        }
+
+        // Idle & auto-remove checker:
+        // - After 15s without packets -> mark tile IDLE (dimmed)
+        // - After 60s without packets -> auto-remove tile so remaining active bikes expand (skipped in Demo/FTP test)
         staleCheckJob = viewModelScope.launch {
             while (true) {
                 delay(1000)
                 val now = System.currentTimeMillis()
+                val allowAutoRemove = !_uiState.value.isDemoMode && !_uiState.value.ftpTest.isActive
                 var updated = false
-                bikeMap.values.forEach { b ->
-                    val shouldBeStale = (now - b.lastSeenTimestamp) > 10_000
-                    if (b.isStale != shouldBeStale) {
-                        bikeMap[b.bikeId] = b.copy(isStale = shouldBeStale)
+
+                bikeMap.entries.toList().forEach { (id, b) ->
+                    val elapsed = now - b.lastSeenTimestamp
+                    if (allowAutoRemove && elapsed > AUTO_REMOVE_TIMEOUT_MS) {
+                        bikeMap.remove(id)
                         updated = true
+                    } else {
+                        val shouldBeIdle = elapsed > IDLE_TIMEOUT_MS
+                        if (b.isStale != shouldBeIdle) {
+                            bikeMap[id] = b.copy(isStale = shouldBeIdle)
+                            updated = true
+                        }
                     }
                 }
                 if (updated) {
                     refreshUiState()
+                }
+            }
+        }
+
+        // BLE Scan Watchdog: prevents silent Android/Samsung BLE scan suspension after long idle periods.
+        // Refreshes an active scan if it has run >= 12 minutes OR had 60s of silence (at most once per 60s).
+        scanWatchdogJob = viewModelScope.launch {
+            while (true) {
+                delay(15_000)
+                if (!_uiState.value.isScanning) continue
+                val now = System.currentTimeMillis()
+                if (now - lastScanRefreshMs < SCAN_REFRESH_COOLDOWN_MS) continue
+
+                val scanAge = now - bleScanner.scanStartedTimestampMs
+                val silenceDuration = now - bleScanner.lastPacketTimestampMs
+                val needsRefresh = !bleScanner.isScanning ||
+                    scanAge >= SCAN_MAX_CONTINUOUS_MS ||
+                    silenceDuration >= SCAN_SILENCE_REFRESH_MS
+
+                if (needsRefresh) {
+                    refreshBleScanSafely()
                 }
             }
         }
@@ -175,10 +282,44 @@ class KeiserViewModel(application: Application) : AndroidViewModel(application) 
         val currentlyScanning = _uiState.value.isScanning
         if (currentlyScanning) {
             bleScanner.stopScan()
+            gattManager.disconnectAll()
+            antPlusReceiver.stop()
             _uiState.update { it.copy(isScanning = false) }
         } else {
-            bleScanner.startScan()
-            _uiState.update { it.copy(isScanning = true) }
+            val started = bleScanner.startScan()
+            if (started) {
+                lastScanRefreshMs = System.currentTimeMillis()
+                if (_uiState.value.selectedProtocol != BikeProtocol.KEISER) {
+                    antPlusReceiver.start()
+                }
+            }
+            _uiState.update { it.copy(isScanning = started) }
+        }
+    }
+
+    /**
+     * Called when MainActivity resumes (e.g. screen wake, HDMI/DeX switch, returning from another app).
+     * Gently refreshes an active BLE scan so Android/Samsung cannot leave it silently suspended.
+     */
+    fun onAppResumed() {
+        if (!_uiState.value.isScanning) return
+        val now = System.currentTimeMillis()
+        if (now - lastScanRefreshMs < 10_000L && bleScanner.isScanning) return
+        viewModelScope.launch {
+            refreshBleScanSafely()
+        }
+    }
+
+    private suspend fun refreshBleScanSafely() {
+        if (!_uiState.value.isScanning) return
+        lastScanRefreshMs = System.currentTimeMillis()
+        bleScanner.stopScan()
+        delay(300)
+        if (_uiState.value.isScanning) {
+            val restarted = bleScanner.startScan()
+            if (!restarted) {
+                _uiState.update { it.copy(isScanning = false) }
+            }
         }
     }
 
@@ -194,13 +335,14 @@ class KeiserViewModel(application: Application) : AndroidViewModel(application) 
     private fun startDemoSimulation() {
         demoJob?.cancel()
         val protocol = _uiState.value.selectedProtocol
-        val demoBrand = demoBrandFor(protocol)
         demoConfigs.forEach { cfg ->
             val ftpPct = (cfg.baseWatts * 100) / cfg.ftp
+            val demoBrand = demoBrandFor(protocol, cfg.id)
             val eqType = demoEquipmentTypeFor(protocol, cfg.id)
             val initialCadence = demoBaseCadenceFor(eqType, cfg.baseRpm)
             bikeMap[cfg.id] = BikeData(
                 bikeId = cfg.id,
+                displayId = demoDisplayIdFor(protocol, cfg.id),
                 cadenceRpm = initialCadence,
                 heartRateBpm = 0f,
                 powerWatts = cfg.baseWatts,
@@ -434,6 +576,59 @@ class KeiserViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    fun updateRiderProfile(bikeId: Int, riderName: String, ftp: Int) {
+        val clampedFtp = ftp.coerceIn(
+            RiderProfileRepository.MIN_FTP_WATTS,
+            RiderProfileRepository.MAX_FTP_WATTS
+        )
+        val cleanName = riderName.trim().ifEmpty { "Bike #$bikeId" }
+
+        // Immediately update live UI state
+        bikeMap[bikeId]?.let { existing ->
+            val newPct = (existing.powerWatts * 100) / clampedFtp
+            bikeMap[bikeId] = existing.copy(
+                riderName = cleanName,
+                ftp = clampedFtp,
+                ftpPercent = newPct,
+                ftpZone = FtpZone.fromFtpPercent(newPct, _uiState.value.zoneCount)
+            )
+            refreshUiState()
+        }
+
+        viewModelScope.launch {
+            repository.saveRiderProfile(bikeId, cleanName, clampedFtp)
+        }
+    }
+
+    fun setDefaultFtp(ftp: Int) {
+        val clampedFtp = ftp.coerceIn(
+            RiderProfileRepository.MIN_FTP_WATTS,
+            RiderProfileRepository.MAX_FTP_WATTS
+        )
+        _uiState.update { it.copy(defaultFtp = clampedFtp) }
+
+        viewModelScope.launch {
+            repository.saveDefaultFtp(clampedFtp)
+            var updated = false
+            bikeMap.keys.toList().forEach { bikeId ->
+                if (!repository.hasCustomFtp(bikeId)) {
+                    bikeMap[bikeId]?.let { existing ->
+                        val newPct = (existing.powerWatts * 100) / clampedFtp
+                        bikeMap[bikeId] = existing.copy(
+                            ftp = clampedFtp,
+                            ftpPercent = newPct,
+                            ftpZone = FtpZone.fromFtpPercent(newPct, _uiState.value.zoneCount)
+                        )
+                        updated = true
+                    }
+                }
+            }
+            if (updated) {
+                refreshUiState()
+            }
+        }
+    }
+
     private fun refreshUiState() {
         val allBikes = bikeMap.values.toList()
         val activeBikes = allBikes.filter { !it.isStale }
@@ -478,10 +673,19 @@ class KeiserViewModel(application: Application) : AndroidViewModel(application) 
             repository.saveBikeProtocol(protocol)
             _uiState.update { it.copy(selectedProtocol = protocol) }
             bleScanner.setProtocol(protocol)
+            antPlusReceiver.setProtocol(protocol)
+            if (_uiState.value.isScanning) {
+                gattManager.disconnectAll()
+                if (protocol != BikeProtocol.KEISER) {
+                    antPlusReceiver.start()
+                } else {
+                    antPlusReceiver.stop()
+                }
+            }
             if (_uiState.value.isDemoMode) {
-                val updatedBrand = demoBrandFor(protocol)
                 demoConfigs.forEach { cfg ->
                     bikeMap[cfg.id]?.let { existing ->
+                        val updatedBrand = demoBrandFor(protocol, cfg.id)
                         val updatedEqType = demoEquipmentTypeFor(protocol, cfg.id)
                         val updatedCadence = if (existing.equipmentType != updatedEqType) {
                             demoBaseCadenceFor(updatedEqType, cfg.baseRpm)
@@ -489,6 +693,7 @@ class KeiserViewModel(application: Application) : AndroidViewModel(application) 
                             existing.cadenceRpm
                         }
                         bikeMap[cfg.id] = existing.copy(
+                            displayId = demoDisplayIdFor(protocol, cfg.id),
                             brand = updatedBrand,
                             equipmentType = updatedEqType,
                             cadenceRpm = updatedCadence
@@ -500,13 +705,29 @@ class KeiserViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    private fun demoEquipmentTypeFor(protocol: BikeProtocol, bikeId: Int): String {
-        if (protocol != BikeProtocol.CONCEPT2) return ""
-        return when {
+    private fun demoDisplayIdFor(protocol: BikeProtocol, bikeId: Int): String = when (protocol) {
+        BikeProtocol.CONCEPT2 -> String.format("396%02d", bikeId)
+        BikeProtocol.FTMS_UNIVERSAL -> String.format("023%02d", bikeId)
+        BikeProtocol.AUTO_DETECT -> when (bikeId) {
+            7, 8 -> String.format("396%02d", bikeId)
+            9, 10 -> String.format("023%02d", bikeId)
+            else -> ""
+        }
+        else -> ""
+    }
+
+    private fun demoEquipmentTypeFor(protocol: BikeProtocol, bikeId: Int): String = when (protocol) {
+        BikeProtocol.CONCEPT2 -> when {
             bikeId <= 4 -> "BIKEERG"
             bikeId <= 8 -> "ROWERG"
             else -> "SKIERG"
         }
+        BikeProtocol.AUTO_DETECT -> when (bikeId) {
+            7 -> "BIKEERG"
+            8 -> "ROWERG"
+            else -> ""
+        }
+        else -> ""
     }
 
     private fun demoBaseCadenceFor(equipmentType: String, cyclingBaseRpm: Float): Float = when (equipmentType) {
@@ -515,22 +736,40 @@ class KeiserViewModel(application: Application) : AndroidViewModel(application) 
         else -> cyclingBaseRpm
     }
 
-    private fun demoBrandFor(protocol: BikeProtocol): String = when (protocol) {
-        BikeProtocol.AUTO_DETECT -> "Fleet"
+    private fun demoBrandFor(protocol: BikeProtocol, bikeId: Int): String = when (protocol) {
+        BikeProtocol.AUTO_DETECT -> when (bikeId) {
+            1, 2 -> "Keiser"
+            3, 4 -> "Stages"
+            5, 6 -> "Schwinn"
+            7, 8 -> "Concept2"
+            9, 10 -> "Wattbike"
+            else -> "PowerMeter"
+        }
         BikeProtocol.KEISER -> "Keiser"
         BikeProtocol.STAGES -> "Stages"
         BikeProtocol.SCHWINN_4IIII -> "Schwinn"
         BikeProtocol.CONCEPT2 -> "Concept2"
-        BikeProtocol.FTMS_UNIVERSAL -> "FTMS"
-        BikeProtocol.POWER_METERS -> "Power"
+        BikeProtocol.FTMS_UNIVERSAL -> "Wattbike"
+        BikeProtocol.POWER_METERS -> "PowerMeter"
     }
 
     override fun onCleared() {
         super.onCleared()
         bleScanner.stopScan()
+        gattManager.disconnectAll()
+        antPlusReceiver.release()
         demoJob?.cancel()
         ftpTimerJob?.cancel()
         staleCheckJob?.cancel()
         sessionTimerJob?.cancel()
+        scanWatchdogJob?.cancel()
+    }
+
+    companion object {
+        private const val IDLE_TIMEOUT_MS = 15_000L
+        private const val AUTO_REMOVE_TIMEOUT_MS = 60_000L
+        private const val SCAN_SILENCE_REFRESH_MS = 60_000L
+        private const val SCAN_MAX_CONTINUOUS_MS = 12 * 60 * 1000L // 12 min (beats 30-min OS scan timeout)
+        private const val SCAN_REFRESH_COOLDOWN_MS = 60_000L
     }
 }

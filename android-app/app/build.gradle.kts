@@ -12,8 +12,8 @@ android {
         applicationId = "com.keiser.studio"
         minSdk = 26
         targetSdk = 35
-        versionCode = 6
-        versionName = "1.3.3"
+        versionCode = 9
+        versionName = "1.5.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

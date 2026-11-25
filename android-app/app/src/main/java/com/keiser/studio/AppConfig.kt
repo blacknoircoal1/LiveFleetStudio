@@ -2,12 +2,13 @@ package com.keiser.studio
 
 /**
  * Single source of truth for application identity, versioning, and branding metadata.
+ * Version values are sourced directly from Gradle BuildConfig (app/build.gradle.kts)
+ * so version bumps always stay in sync automatically.
  */
 object AppConfig {
     const val APP_NAME = "LiveFleet Studio"
-    const val VERSION_NAME = "1.3.3"
-    const val VERSION_CODE = 6
+    val VERSION_NAME: String get() = BuildConfig.VERSION_NAME
+    val VERSION_CODE: Int get() = BuildConfig.VERSION_CODE
     const val CREATOR = "KayAyyFit"
-    const val VERSION_LABEL = "$APP_NAME v$VERSION_NAME"
-    const val FOOTER_CREDIT = "$VERSION_LABEL • Created by $CREATOR"
+    val VERSION_LABEL: String get() = "$APP_NAME v$VERSION_NAME"
 }

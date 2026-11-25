@@ -55,9 +55,18 @@ fun calculateConcept2SplitSeconds(powerWatts: Int): Double? {
 
 /**
  * Formats Concept2 split pace as "M:SS" (compact) or "M:SS.d" (standard).
+ * Uses [liveSplitSeconds] reported directly by PM5 BLE GATT when available, otherwise derives
+ * split pace from [powerWatts] via the official Concept2 power equation.
  */
-fun formatConcept2SplitPace(powerWatts: Int, showTenths: Boolean = false): String {
-    val totalSeconds = calculateConcept2SplitSeconds(powerWatts) ?: return if (showTenths) "-:--.-" else "-:--"
+fun formatConcept2SplitPace(
+    powerWatts: Int,
+    showTenths: Boolean = false,
+    liveSplitSeconds: Float? = null
+): String {
+    val totalSeconds = liveSplitSeconds?.toDouble()
+        ?: calculateConcept2SplitSeconds(powerWatts)
+        ?: return if (showTenths) "-:--.-" else "-:--"
+    if (totalSeconds <= 0.0) return if (showTenths) "-:--.-" else "-:--"
     if (showTenths) {
         val totalTenths = (totalSeconds * 10.0).roundToInt()
         val mins = totalTenths / 600
@@ -134,26 +143,25 @@ fun Concept2Pm5Console(
     ) {
         val totalHeight = maxHeight
         val totalWidth = maxWidth
-        val isVeryCompact = totalHeight < 138.dp || totalWidth < 135.dp || isCompact
+        val minDim = minOf(totalWidth.value, totalHeight.value)
+        val isUltraDense = totalHeight < 92.dp || totalWidth < 95.dp
+        val isVeryCompact = isUltraDense || totalHeight < 138.dp || totalWidth < 135.dp || isCompact
         val showTenths = !isVeryCompact && totalWidth >= 175.dp
-        val showThirdMetric = !isVeryCompact && totalWidth >= 195.dp && totalHeight >= 150.dp
         val showBezelFooter = !isVeryCompact && totalHeight >= 150.dp
 
-        val splitPaceText = formatConcept2SplitPace(bike.powerWatts, showTenths = showTenths)
+        val splitPaceText = formatConcept2SplitPace(
+            powerWatts = bike.powerWatts,
+            showTenths = showTenths,
+            liveSplitSeconds = bike.liveSplitSeconds
+        )
         val splitPaceGhost = if (showTenths) "8:88.8" else "8:88"
+        val pm5IdLabel = bike.displayId.ifEmpty { "#${bike.bikeId}" }
 
-        val paceFontSize: TextUnit = when {
-            totalHeight < 110.dp || totalWidth < 115.dp -> 16.sp
-            isVeryCompact -> 20.sp
-            totalHeight >= 210.dp && totalWidth >= 240.dp -> 34.sp
-            else -> 26.sp
-        }
-        val metricFontSize: TextUnit = when {
-            totalHeight < 110.dp || totalWidth < 115.dp -> 12.sp
-            isVeryCompact -> 14.sp
-            totalHeight >= 210.dp && totalWidth >= 240.dp -> 20.sp
-            else -> 16.sp
-        }
+        val paceFontSize: TextUnit = (minDim * 0.19f).coerceIn(if (isUltraDense) 11f else 16f, 76f).sp
+        val paceUnitFontSize: TextUnit = (minDim * 0.06f).coerceIn(if (isUltraDense) 5.5f else 6.5f, 22f).sp
+        val metricFontSize: TextUnit = (minDim * 0.135f).coerceIn(if (isUltraDense) 8.5f else 12f, 48f).sp
+        val metricLabelFontSize: TextUnit = (minDim * 0.052f).coerceIn(if (isUltraDense) 5.5f else 6.5f, 18f).sp
+        val headerFontSize: TextUnit = (minDim * 0.068f).coerceIn(if (isUltraDense) 7f else 8f, 22f).sp
 
         // OUTER PM5 BEZEL HOUSING
         Column(
@@ -224,10 +232,10 @@ fun Concept2Pm5Console(
                                     softWrap = false
                                 )
                                 Text(
-                                    text = "#${bike.bikeId}",
+                                    text = pm5IdLabel,
                                     fontFamily = Dseg7FontFamily,
                                     fontWeight = FontWeight.Bold,
-                                    fontSize = if (isVeryCompact) 8.5.sp else 10.sp,
+                                    fontSize = headerFontSize,
                                     color = Color.White,
                                     maxLines = 1,
                                     softWrap = false
@@ -237,7 +245,7 @@ fun Concept2Pm5Console(
                             Text(
                                 text = ergHeaderLabel,
                                 fontFamily = FontFamily.Monospace,
-                                fontSize = if (isVeryCompact) 6.5.sp else 8.sp,
+                                fontSize = (headerFontSize.value * 0.85f).coerceIn(6.5f, 18f).sp,
                                 fontWeight = FontWeight.Bold,
                                 color = if (bike.isStale) Color(0xFFFCA5A5) else Color(0xFFB8C7D1),
                                 maxLines = 1,
@@ -282,7 +290,7 @@ fun Concept2Pm5Console(
                             Text(
                                 text = paceUnit,
                                 fontFamily = FontFamily.Monospace,
-                                fontSize = if (isVeryCompact) 6.5.sp else 8.5.sp,
+                                fontSize = paceUnitFontSize,
                                 fontWeight = FontWeight.Black,
                                 color = Pm5LcdInkMuted,
                                 modifier = Modifier.padding(bottom = if (isVeryCompact) 1.dp else 3.dp),
@@ -301,60 +309,105 @@ fun Concept2Pm5Console(
                     )
 
                     // 4. LOWER PM5 DATA CELLS: WATTS | RPM (s/m) [| KCAL]
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = if (isVeryCompact) 2.dp else 3.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        // Power (Watts)
-                        Pm5LowerMetricCell(
-                            value = "${bike.powerWatts}",
-                            ghost = "888",
-                            label = "WATTS",
-                            fontSize = metricFontSize,
-                            isVeryCompact = isVeryCompact,
-                            isAlert = false,
-                            alertAlpha = 1f,
-                            modifier = Modifier.weight(1f)
-                        )
-
-                        // Hairline vertical separator
-                        Box(
+                    if (isUltraDense) {
+                        Row(
                             modifier = Modifier
-                                .width(1.dp)
-                                .height(if (isVeryCompact) 18.dp else 24.dp)
-                                .background(Pm5LcdRule)
-                        )
+                                .fillMaxWidth()
+                                .padding(top = 1.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.Bottom) {
+                                Text(
+                                    text = "${bike.powerWatts}",
+                                    fontFamily = Dseg7FontFamily,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = metricFontSize,
+                                    color = Pm5LcdInk,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                                Text(
+                                    text = "W",
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = metricLabelFontSize,
+                                    fontWeight = FontWeight.Black,
+                                    color = Pm5LcdInkMuted,
+                                    modifier = Modifier.padding(start = 1.dp),
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            }
 
-                        // Cadence (RPM / s/m) with FTP test cadence alert
-                        Pm5LowerMetricCell(
-                            value = "${bike.cadenceRpm.toInt()}",
-                            ghost = "888",
-                            label = cadenceUnit,
-                            fontSize = metricFontSize,
-                            isVeryCompact = isVeryCompact,
-                            isAlert = isCadenceAlert,
-                            alertAlpha = alertAlpha,
-                            modifier = Modifier.weight(1f)
-                        )
+                            Row(
+                                modifier = if (isCadenceAlert) {
+                                    Modifier
+                                        .clip(RoundedCornerShape(2.dp))
+                                        .background(AccentDanger.copy(alpha = alertAlpha))
+                                        .padding(horizontal = 2.dp)
+                                } else {
+                                    Modifier
+                                },
+                                verticalAlignment = Alignment.Bottom
+                            ) {
+                                Text(
+                                    text = "${bike.cadenceRpm.toInt()}",
+                                    fontFamily = Dseg7FontFamily,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = metricFontSize,
+                                    color = if (isCadenceAlert) Color.White else Pm5LcdInk,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                                Text(
+                                    text = cadenceUnit,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = metricLabelFontSize,
+                                    fontWeight = FontWeight.Black,
+                                    color = if (isCadenceAlert) Color.White else Pm5LcdInkMuted,
+                                    modifier = Modifier.padding(start = 1.dp),
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            }
+                        }
+                    } else {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = if (isVeryCompact) 2.dp else 3.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // Power (Watts)
+                            Pm5LowerMetricCell(
+                                value = "${bike.powerWatts}",
+                                ghost = "888",
+                                label = "WATTS",
+                                fontSize = metricFontSize,
+                                labelFontSize = metricLabelFontSize,
+                                isAlert = false,
+                                alertAlpha = 1f,
+                                modifier = Modifier.weight(1f)
+                            )
 
-                        if (showThirdMetric) {
+                            // Hairline vertical separator
                             Box(
                                 modifier = Modifier
                                     .width(1.dp)
-                                    .height(24.dp)
+                                    .height((minDim * 0.14f).coerceIn(18f, 44f).dp)
                                     .background(Pm5LcdRule)
                             )
+
+                            // Cadence (RPM / s/m) with FTP test cadence alert
                             Pm5LowerMetricCell(
-                                value = "${bike.calories}",
+                                value = "${bike.cadenceRpm.toInt()}",
                                 ghost = "888",
-                                label = "CAL",
+                                label = cadenceUnit,
                                 fontSize = metricFontSize,
-                                isVeryCompact = false,
-                                isAlert = false,
-                                alertAlpha = 1f,
+                                labelFontSize = metricLabelFontSize,
+                                isAlert = isCadenceAlert,
+                                alertAlpha = alertAlpha,
                                 modifier = Modifier.weight(1f)
                             )
                         }
@@ -424,7 +477,7 @@ private fun Pm5LowerMetricCell(
     ghost: String,
     label: String,
     fontSize: TextUnit,
-    isVeryCompact: Boolean,
+    labelFontSize: TextUnit,
     isAlert: Boolean,
     alertAlpha: Float,
     modifier: Modifier = Modifier
@@ -470,7 +523,7 @@ private fun Pm5LowerMetricCell(
         Text(
             text = if (isAlert) "$label !" else label,
             fontFamily = FontFamily.Monospace,
-            fontSize = if (isVeryCompact) 6.sp else 7.sp,
+            fontSize = labelFontSize,
             fontWeight = FontWeight.Black,
             color = if (isAlert) Color.White else Pm5LcdInkMuted,
             letterSpacing = 0.3.sp,

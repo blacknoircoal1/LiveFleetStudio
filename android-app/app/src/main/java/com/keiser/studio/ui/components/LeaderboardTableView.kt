@@ -2,6 +2,7 @@ package com.keiser.studio.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -11,6 +12,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -24,8 +26,15 @@ import com.keiser.studio.ui.theme.*
 fun LeaderboardTableView(
     bikes: List<BikeData>,
     isFtpTestActive: Boolean,
+    onBikeClick: (BikeData) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    val isLargeDisplay = LocalConfiguration.current.smallestScreenWidthDp >= 600
+    val headerFontSize = if (isLargeDisplay) 15.sp else 11.sp
+    val valueFontSize = if (isLargeDisplay) 24.sp else 14.sp
+    val zoneFontSize = if (isLargeDisplay) 15.sp else 10.sp
+    val rowVerticalPadding = if (isLargeDisplay) 12.dp else 7.dp
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -38,15 +47,15 @@ fun LeaderboardTableView(
                 .fillMaxWidth()
                 .background(Color(0xFF0C0E14), RoundedCornerShape(4.dp))
                 .border(1.dp, BorderColor, RoundedCornerShape(4.dp))
-                .padding(horizontal = 10.dp, vertical = 6.dp),
+                .padding(horizontal = 10.dp, vertical = if (isLargeDisplay) 10.dp else 6.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text("ZONE", fontSize = 10.sp, fontWeight = FontWeight.Black, color = TextMuted, modifier = Modifier.weight(0.7f))
-            Text("BIKE", fontSize = 10.sp, fontWeight = FontWeight.Black, color = TextMuted, modifier = Modifier.weight(0.8f))
-            Text("POWER", fontSize = 10.sp, fontWeight = FontWeight.Black, color = TextMuted, modifier = Modifier.weight(1.0f))
-            Text("RPM", fontSize = 10.sp, fontWeight = FontWeight.Black, color = TextMuted, modifier = Modifier.weight(0.9f))
-            Text("FTP %", fontSize = 10.sp, fontWeight = FontWeight.Black, color = TextMuted, modifier = Modifier.weight(0.9f))
+            Text("ZONE", fontSize = headerFontSize, fontWeight = FontWeight.Black, color = TextMuted, modifier = Modifier.weight(0.65f))
+            Text("BIKE", fontSize = headerFontSize, fontWeight = FontWeight.Black, color = TextMuted, modifier = Modifier.weight(0.85f))
+            Text("POWER", fontSize = headerFontSize, fontWeight = FontWeight.Black, color = TextMuted, modifier = Modifier.weight(1.0f))
+            Text("RPM", fontSize = headerFontSize, fontWeight = FontWeight.Black, color = TextMuted, modifier = Modifier.weight(0.8f))
+            Text("FTP %", fontSize = headerFontSize, fontWeight = FontWeight.Black, color = TextMuted, modifier = Modifier.weight(1.05f))
         }
 
         Spacer(modifier = Modifier.height(4.dp))
@@ -54,7 +63,7 @@ fun LeaderboardTableView(
         // Table Rows
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.spacedBy(2.dp)
+            verticalArrangement = Arrangement.spacedBy(if (isLargeDisplay) 4.dp else 2.dp)
         ) {
             itemsIndexed(bikes, key = { _, b -> b.bikeId }) { rank, bike ->
                 val zoneColor = bike.ftpZone.color
@@ -65,36 +74,41 @@ fun LeaderboardTableView(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(if (rank % 2 == 0) Color(0xFF05070B) else Color(0xFF0A0C12), RoundedCornerShape(4.dp))
-                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                        .clickable { onBikeClick(bike) }
+                        .padding(horizontal = 10.dp, vertical = rowVerticalPadding),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     // Zone Badge
                     Box(
                         modifier = Modifier
-                            .weight(0.7f)
+                            .weight(0.65f)
                             .background(zoneColor, RoundedCornerShape(3.dp))
-                            .padding(horizontal = 4.dp, vertical = 1.dp),
+                            .padding(horizontal = 4.dp, vertical = if (isLargeDisplay) 3.dp else 1.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(zoneCode, fontSize = 9.sp, fontWeight = FontWeight.Black, color = Color.White)
+                        Text(zoneCode, fontSize = zoneFontSize, fontWeight = FontWeight.Black, color = Color.White, maxLines = 1, softWrap = false)
                     }
 
-                    // Bike Number
+                    // Bike / PM5 ID
                     Text(
-                        text = "#${bike.bikeId}",
-                        fontSize = 12.sp,
+                        text = bike.displayId.ifEmpty { "#${bike.bikeId}" },
+                        fontSize = valueFontSize,
                         fontWeight = FontWeight.Bold,
                         color = AccentEnergy,
-                        modifier = Modifier.weight(0.8f)
+                        maxLines = 1,
+                        softWrap = false,
+                        modifier = Modifier.weight(0.85f)
                     )
 
                     // Power Watts
                     Text(
                         text = "${bike.powerWatts} W",
-                        fontSize = 12.sp,
+                        fontSize = valueFontSize,
                         fontWeight = FontWeight.Black,
                         color = Color.White,
+                        maxLines = 1,
+                        softWrap = false,
                         modifier = Modifier.weight(1.0f)
                     )
 
@@ -102,35 +116,42 @@ fun LeaderboardTableView(
                     if (isCadenceAlert) {
                         Box(
                             modifier = Modifier
-                                .weight(0.9f)
+                                .weight(0.8f)
                                 .background(AccentDanger, RoundedCornerShape(3.dp))
-                                .padding(horizontal = 4.dp, vertical = 1.dp)
+                                .padding(horizontal = 4.dp, vertical = if (isLargeDisplay) 3.dp else 1.dp)
                         ) {
                             Text(
                                 text = "${bike.cadenceRpm.toInt()} ⚠️",
-                                fontSize = 11.sp,
+                                fontSize = valueFontSize,
                                 fontWeight = FontWeight.Black,
-                                color = Color.White
+                                color = Color.White,
+                                maxLines = 1,
+                                softWrap = false
                             )
                         }
                     } else {
                         Text(
                             text = "${bike.cadenceRpm.toInt()}",
-                            fontSize = 12.sp,
+                            fontSize = valueFontSize,
                             fontWeight = FontWeight.Bold,
-                            color = TextMuted,
-                            modifier = Modifier.weight(0.9f)
+                            color = Color(0xFFE2E8F0),
+                            maxLines = 1,
+                            softWrap = false,
+                            modifier = Modifier.weight(0.8f)
                         )
                     }
 
                     // FTP %
+                    val ftpText = "${bike.ftpPercent}%"
                     Text(
-                        text = "${bike.ftpPercent}%",
+                        text = ftpText,
                         fontFamily = Dseg7FontFamily,
-                        fontSize = 12.sp,
+                        fontSize = if (ftpText.length >= 5) (valueFontSize.value * 0.82f).sp else valueFontSize,
                         fontWeight = FontWeight.Bold,
                         color = Color.White,
-                        modifier = Modifier.weight(0.9f)
+                        maxLines = 1,
+                        softWrap = false,
+                        modifier = Modifier.weight(1.05f)
                     )
                 }
             }

@@ -15,8 +15,10 @@ data class BikeData(
     val lastSeenTimestamp: Long = System.currentTimeMillis(),
     val isStale: Boolean = false,
     val riderName: String = "Rider #$bikeId",
+    val displayId: String = "",
     val brand: String = "Keiser",
     val equipmentType: String = "",
+    val liveSplitSeconds: Float? = null,
     val ftp: Int = 200,
     val ftpPercent: Int = 0,
     val ftpZone: FtpZone = FtpZone.ZONE_1

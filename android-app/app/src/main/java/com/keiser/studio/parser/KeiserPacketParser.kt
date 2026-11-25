@@ -45,8 +45,8 @@ object KeiserPacketParser : BikePacketParser {
         val dataType = bytes[offset + 2].toInt() and 0xFF
         val bikeId = bytes[offset + 3].toInt() and 0xFF
 
-        // Validate real-time main interval (0 or 255) and bike ID (1..250)
-        if (dataType != 0 && dataType != 255) return null
+        // Validate real-time data (0 = main session, 128..255 = real-time during intervals) and bike ID (1..250)
+        if (dataType != 0 && dataType < 128) return null
         if (bikeId !in 1..250) return null
 
         val cadenceRaw = (bytes[offset + 4].toInt() and 0xFF) or ((bytes[offset + 5].toInt() and 0xFF) shl 8)

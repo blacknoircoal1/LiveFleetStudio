@@ -4,6 +4,7 @@ import android.content.res.Configuration
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -11,6 +12,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -20,7 +25,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.keiser.studio.AppConfig
 import com.keiser.studio.model.BikeData
 import com.keiser.studio.model.BikeProtocol
 import com.keiser.studio.model.LeaderboardViewMode
@@ -42,6 +46,8 @@ fun LeaderboardScreen(
     onViewLastFtpResults: () -> Unit = {},
     onViewModeChange: (LeaderboardViewMode) -> Unit,
     onZoneCountChange: (Int) -> Unit = {},
+    onUpdateRiderProfile: (bikeId: Int, name: String, ftp: Int) -> Unit = { _, _, _ -> },
+    onDefaultFtpChange: (Int) -> Unit = {},
     onToggleSessionTimer: () -> Unit,
     onResetSessionTimer: () -> Unit,
     onOpenSettings: () -> Unit = {},
@@ -50,6 +56,7 @@ fun LeaderboardScreen(
     modifier: Modifier = Modifier
 ) {
     val configuration = LocalConfiguration.current
+    var editingBikeId by remember { mutableStateOf<Int?>(null) }
 
     // 1. FULL-SCREEN 5-SECOND COUNTDOWN OVERLAY
     if (uiState.ftpTest.isPreparing) {
@@ -87,6 +94,7 @@ fun LeaderboardScreen(
             onCloseSettings = onCloseSettings,
             onSelectProtocol = onSelectProtocol,
             onZoneCountChange = onZoneCountChange,
+            onDefaultFtpChange = onDefaultFtpChange,
             onViewModeChange = onViewModeChange,
             onBleToggle = onBleToggle,
             onDemoToggle = onDemoToggle,
@@ -112,23 +120,6 @@ fun LeaderboardScreen(
                 onResetSessionTimer = onResetSessionTimer
             )
         },
-        bottomBar = {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(Color(0xFF000000))
-                    .navigationBarsPadding()
-                    .padding(vertical = 4.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = AppConfig.FOOTER_CREDIT,
-                    fontSize = 9.5.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = Color(0xFF475569)
-                )
-            }
-        },
         containerColor = Color(0xFF000000),
         modifier = modifier.fillMaxSize()
     ) { innerPadding ->
@@ -136,6 +127,7 @@ fun LeaderboardScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
+                .navigationBarsPadding()
                 .background(Color(0xFF000000))
         ) {
             // Group FTP Test Active Banner (Only during the actual test, after 5s prep)
@@ -153,7 +145,6 @@ fun LeaderboardScreen(
                 EmptyStateView(
                     protocol = uiState.selectedProtocol,
                     isScanning = uiState.isScanning,
-                    onEnableDemo = { onDemoToggle(true) },
                     onToggleScan = onBleToggle
                 )
             } else {
@@ -189,6 +180,7 @@ fun LeaderboardScreen(
                                                     modifier = Modifier
                                                         .weight(1f)
                                                         .fillMaxHeight()
+                                                        .clickable { editingBikeId = bike.bikeId }
                                                 ) {
                                                     val isStages = uiState.selectedProtocol == BikeProtocol.STAGES ||
                                                         (uiState.selectedProtocol == BikeProtocol.AUTO_DETECT && bike.brand.equals("Stages", ignoreCase = true))
@@ -196,6 +188,16 @@ fun LeaderboardScreen(
                                                         (uiState.selectedProtocol == BikeProtocol.AUTO_DETECT && bike.brand.equals("Concept2", ignoreCase = true))
                                                     val isSchwinn = uiState.selectedProtocol == BikeProtocol.SCHWINN_4IIII ||
                                                         (uiState.selectedProtocol == BikeProtocol.AUTO_DETECT && bike.brand.equals("Schwinn", ignoreCase = true))
+                                                    val isWattbike = bike.brand.equals("Wattbike", ignoreCase = true) ||
+                                                        (uiState.selectedProtocol == BikeProtocol.FTMS_UNIVERSAL && bike.brand.equals("FTMS", ignoreCase = true))
+                                                    val isPowerHeadUnit = uiState.selectedProtocol == BikeProtocol.POWER_METERS ||
+                                                        bike.brand.equals("PowerMeter", ignoreCase = true) ||
+                                                        bike.brand.equals("Power", ignoreCase = true) ||
+                                                        bike.brand.equals("LifeFitness", ignoreCase = true) ||
+                                                        bike.brand.equals("Technogym", ignoreCase = true) ||
+                                                        bike.brand.equals("Matrix", ignoreCase = true) ||
+                                                        bike.brand.equals("BodyBike", ignoreCase = true) ||
+                                                        (uiState.selectedProtocol == BikeProtocol.AUTO_DETECT && bike.brand.equals("FTMS", ignoreCase = true))
 
                                                     when {
                                                         isStages -> {
@@ -228,6 +230,26 @@ fun LeaderboardScreen(
                                                                 modifier = Modifier.fillMaxSize()
                                                             )
                                                         }
+                                                        isWattbike -> {
+                                                            WattbikeAirProConsole(
+                                                                bike = bike,
+                                                                isFtpTestActive = uiState.ftpTest.isActive && !uiState.ftpTest.isPreparing,
+                                                                isCompact = isCompact,
+                                                                zoneCount = uiState.zoneCount,
+                                                                sessionElapsedSeconds = uiState.sessionElapsedSeconds,
+                                                                modifier = Modifier.fillMaxSize()
+                                                            )
+                                                        }
+                                                        isPowerHeadUnit -> {
+                                                            PowerMeterHeadUnitConsole(
+                                                                bike = bike,
+                                                                isFtpTestActive = uiState.ftpTest.isActive && !uiState.ftpTest.isPreparing,
+                                                                isCompact = isCompact,
+                                                                zoneCount = uiState.zoneCount,
+                                                                sessionElapsedSeconds = uiState.sessionElapsedSeconds,
+                                                                modifier = Modifier.fillMaxSize()
+                                                            )
+                                                        }
                                                         else -> {
                                                             FloatingBikeDial(
                                                                 bike = bike,
@@ -252,12 +274,26 @@ fun LeaderboardScreen(
                         // Table View: Dense Leaderboard matching Top-Right quadrant of Ride by Color
                         LeaderboardTableView(
                             bikes = uiState.bikes,
-                            isFtpTestActive = uiState.ftpTest.isActive && !uiState.ftpTest.isPreparing
+                            isFtpTestActive = uiState.ftpTest.isActive && !uiState.ftpTest.isPreparing,
+                            onBikeClick = { bike -> editingBikeId = bike.bikeId }
                         )
                     }
                 }
             }
         }
+    }
+
+    // Tap-to-edit Rider Name & FTP calibration dialog (uses live bike telemetry while open)
+    val editingBike = editingBikeId?.let { id -> uiState.bikes.find { it.bikeId == id } }
+    if (editingBike != null) {
+        RiderProfileEditDialog(
+            bike = editingBike,
+            zoneCount = uiState.zoneCount,
+            onDismiss = { editingBikeId = null },
+            onSave = { bikeId, name, ftp ->
+                onUpdateRiderProfile(bikeId, name, ftp)
+            }
+        )
     }
 }
 
@@ -295,7 +331,6 @@ private fun calculateOptimalGrid(count: Int, isLandscape: Boolean): Pair<Int, In
 private fun EmptyStateView(
     protocol: BikeProtocol,
     isScanning: Boolean,
-    onEnableDemo: () -> Unit,
     onToggleScan: () -> Unit
 ) {
     val info = getProtocolEmptyInfo(protocol)
@@ -366,36 +401,19 @@ private fun EmptyStateView(
             )
             Spacer(modifier = Modifier.height(18.dp))
 
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically
+            Button(
+                onClick = onToggleScan,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (isScanning) AccentDanger else AccentPrimary
+                ),
+                shape = RoundedCornerShape(8.dp),
+                contentPadding = PaddingValues(horizontal = 24.dp, vertical = 10.dp)
             ) {
-                Button(
-                    onClick = onToggleScan,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (isScanning) AccentDanger else AccentPrimary
-                    ),
-                    shape = RoundedCornerShape(8.dp)
-                ) {
-                    Text(
-                        text = if (isScanning) "Stop Scan" else "Start Scan",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 12.sp
-                    )
-                }
-
-                OutlinedButton(
-                    onClick = onEnableDemo,
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = TextMain),
-                    border = BorderStroke(1.dp, BorderColor),
-                    shape = RoundedCornerShape(8.dp)
-                ) {
-                    Text(
-                        text = "Enable Demo Mode",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 12.sp
-                    )
-                }
+                Text(
+                    text = if (isScanning) "Stop Scan" else "Start Scan",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp
+                )
             }
         }
     }
@@ -415,58 +433,58 @@ private fun getProtocolEmptyInfo(protocol: BikeProtocol): ProtocolEmptyInfo {
         BikeProtocol.AUTO_DETECT -> ProtocolEmptyInfo(
             icon = "🚴‍♂️",
             brandPill = "ALL FLEET BRANDS",
-            waitingTitle = "Waiting for Fleet Broadcasts...",
+            waitingTitle = "Waiting for Fleet Equipment...",
             idleTitle = "No Fleet Equipment Detected",
-            scanDescription = "Actively monitoring for all supported brands (Keiser, Stages, Schwinn/4iiii, Concept2, FTMS). Start pedaling or rowing to transmit live telemetry.",
-            idleDescription = "Tap 'Start Scan' to passively listen for any supported indoor bike or erg, or enable Demo Mode to simulate a 12-rider studio session."
+            scanDescription = "Actively listening for all supported brands (Keiser, Stages, Schwinn, Concept2, Wattbike/FTMS, Power Pedals). Start pedaling or rowing to transmit live telemetry.",
+            idleDescription = "Tap 'Start Scan' to connect to any supported indoor bike, erg, or power meter in range."
         )
         BikeProtocol.KEISER -> ProtocolEmptyInfo(
             icon = "🚴‍♂️",
             brandPill = "KEISER M3i FLEET",
             waitingTitle = "Waiting for Keiser M3i Broadcasts...",
             idleTitle = "No Keiser M3i Bikes Detected",
-            scanDescription = "Actively scanning for authentic Keiser 0x0102 broadcasts. Pedal the bike to awaken the computer and transmit telemetry.",
-            idleDescription = "Tap 'Start Scan' to passively listen for Keiser M3i bikes in range, or enable Demo Mode to simulate a 12-rider studio session."
+            scanDescription = "Actively scanning for passive Keiser 0x0102 broadcasts. Pedal the bike to wake its computer and transmit live telemetry.",
+            idleDescription = "Tap 'Start Scan' to passively listen for Keiser M3i bikes in range — no pairing required."
         )
         BikeProtocol.STAGES -> ProtocolEmptyInfo(
             icon = "🚴‍♂️",
             brandPill = "STAGES SC3 FLEET",
-            waitingTitle = "Waiting for Stages SC3 Broadcasts...",
+            waitingTitle = "Waiting for Stages SC3 Bikes...",
             idleTitle = "No Stages SC3 Bikes Detected",
-            scanDescription = "Actively scanning for Stages 0x0151 studio broadcasts with dual-sided power & cadence. Spin the cranks to awaken the power meter and transmit telemetry.",
-            idleDescription = "Tap 'Start Scan' to passively listen for Stages SC3 / SC2 bikes in range, or enable Demo Mode to simulate a 12-rider studio session."
+            scanDescription = "Actively listening for Stages BLE Cycling Power (0x1818) and USB ANT+ broadcasts. Spin the cranks to wake the power meter.",
+            idleDescription = "Tap 'Start Scan' to connect to Stages SC3 / SC2 bikes via Bluetooth (1–6) or USB ANT+ (30+)."
         )
         BikeProtocol.SCHWINN_4IIII -> ProtocolEmptyInfo(
             icon = "🚴‍♂️",
             brandPill = "SCHWINN CARBON BLUE • 4iiii",
-            waitingTitle = "Waiting for Schwinn / 4iiii Broadcasts...",
+            waitingTitle = "Waiting for Schwinn / 4iiii Bikes...",
             idleTitle = "No Schwinn Carbon Blue Bikes Detected",
-            scanDescription = "Actively scanning for 4iiii 0x0182 crank broadcasts. Spin the cranks to awaken the 4iiii power meter and transmit telemetry.",
-            idleDescription = "Tap 'Start Scan' to passively listen for Schwinn 4iiii power cranks, or enable Demo Mode to simulate a 12-rider Echelon2 studio session."
+            scanDescription = "Actively listening for 4iiii BLE Cycling Power (0x1818) and USB ANT+ (MPower Echelon2 & 4iiii). Spin the cranks to wake the meter.",
+            idleDescription = "Tap 'Start Scan' to connect to Schwinn 4iiii cranks via Bluetooth or MPower Echelon2 consoles via USB ANT+."
         )
         BikeProtocol.CONCEPT2 -> ProtocolEmptyInfo(
             icon = "🚴‍♂️",
             brandPill = "CONCEPT2 BIKEERG • PM5",
-            waitingTitle = "Waiting for Concept2 PM5 Broadcasts...",
+            waitingTitle = "Waiting for Concept2 PM5 Monitors...",
             idleTitle = "No Concept2 PM5 Monitors Detected",
-            scanDescription = "Actively scanning for Concept2 PM5 Bluetooth beacons (BikeErg, RowErg, SkiErg). Ensure wireless is enabled in the PM5 monitor menu.",
-            idleDescription = "Tap 'Start Scan' to passively listen for Concept2 PM5 monitors in range, or enable Demo Mode to simulate a 12-rider PM5 studio session."
+            scanDescription = "Actively listening for Concept2 PM5 BLE GATT ('Connect -> Ready for App Connection') and USB ANT+ Group Class beacons.",
+            idleDescription = "Tap 'Start Scan' to connect to Concept2 BikeErg, RowErg, or SkiErg PM5 monitors."
         )
         BikeProtocol.FTMS_UNIVERSAL -> ProtocolEmptyInfo(
             icon = "🚴‍♂️",
-            brandPill = "BLUETOOTH FTMS FLEET",
-            waitingTitle = "Waiting for FTMS Smart Bike Broadcasts...",
-            idleTitle = "No FTMS Smart Bikes Detected",
-            scanDescription = "Actively scanning for Fitness Machine Service (UUID 0x1826) broadcasts (Wattbike, Life Fitness, Technogym, Matrix). Start pedaling to transmit live data.",
-            idleDescription = "Tap 'Start Scan' to passively listen for FTMS indoor bikes, or enable Demo Mode to simulate a 12-rider studio session."
+            brandPill = "WATTBIKE & FTMS FLEET",
+            waitingTitle = "Waiting for Wattbike / FTMS Bikes...",
+            idleTitle = "No Wattbike or FTMS Bikes Detected",
+            scanDescription = "Actively listening for FTMS (UUID 0x1826) and USB ANT+ broadcasts (Wattbike Air-Pro/Atom, Life Fitness IC5–8, Technogym, Matrix).",
+            idleDescription = "Tap 'Start Scan' to connect to Wattbike and standard Bluetooth FTMS smart bikes."
         )
         BikeProtocol.POWER_METERS -> ProtocolEmptyInfo(
             icon = "⚡",
-            brandPill = "BLE POWER METERS",
-            waitingTitle = "Waiting for Power Meter Broadcasts...",
+            brandPill = "POWER PEDALS & CRANKS",
+            waitingTitle = "Waiting for Power Meters...",
             idleTitle = "No Cycling Power Meters Detected",
-            scanDescription = "Actively scanning for standard Cycling Power Profile (UUID 0x1818) broadcasts (Assioma, Garmin, Quarq, SRM). Spin pedals or cranks to awaken the meter.",
-            idleDescription = "Tap 'Start Scan' to passively listen for standard cycling power meters, or enable Demo Mode to simulate a 12-rider studio session."
+            scanDescription = "Actively listening for Bluetooth Cycling Power (UUID 0x1818) and USB ANT+ Bike Power (Assioma, Garmin Rally, Quarq, SRM).",
+            idleDescription = "Tap 'Start Scan' to connect to standard cycling power pedals and crank meters."
         )
     }
 }

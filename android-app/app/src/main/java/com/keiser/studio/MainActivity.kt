@@ -72,6 +72,8 @@ class MainActivity : ComponentActivity() {
                         onViewLastFtpResults = viewModel::showLastFtpResults,
                         onViewModeChange = viewModel::setViewMode,
                         onZoneCountChange = viewModel::setZoneCount,
+                        onUpdateRiderProfile = viewModel::updateRiderProfile,
+                        onDefaultFtpChange = viewModel::setDefaultFtp,
                         onOpenSettings = viewModel::openSettings,
                         onCloseSettings = viewModel::closeSettings,
                         onSelectProtocol = viewModel::setBikeProtocol,
@@ -81,6 +83,11 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        viewModel.onAppResumed()
     }
 
     private fun checkPermissionsAndToggleBle() {
