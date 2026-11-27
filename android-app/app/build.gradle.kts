@@ -5,15 +5,15 @@ plugins {
 }
 
 android {
-    namespace = "com.keiser.studio"
+    namespace = "com.livefleet.studio"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.keiser.studio"
+        applicationId = "com.livefleet.studio"
         minSdk = 26
         targetSdk = 35
-        versionCode = 9
-        versionName = "1.5.1"
+        versionCode = 27
+        versionName = "1.9.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

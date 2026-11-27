@@ -19,5 +19,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "KeiserStudio"
+rootProject.name = "LiveFleetStudio"
 include(":app")
